@@ -1,6 +1,5 @@
 <?php
 // Exit if accessed directly
-//test
 if ( !defined( 'ABSPATH' ) ) exit;
 // BEGIN ENQUEUE PARENT ACTION
 // AUTO GENERATED - Do not modify or remove comment markers above or below:
@@ -41,10 +40,12 @@ require_once( __DIR__ . '/ccrind-functions/order-status-update-bare.php');
 require_once( __DIR__ . '/ccrind-functions/ebay-hold-processing.php');
 // code to alter search on admin lists, mainly product searches (seperate code file reference)
 require_once( __DIR__ . '/ccrind-functions/search-mods.php');
-// code to alter search on admin lists, mainly product searches (seperate code file reference)
+// code to style css items (seperate code file reference)
 require_once( __DIR__ . '/ccrind-functions/css-style-main.php');
 // code to handle the pressing of the update button for both orders and products
 require_once( __DIR__ . '/ccrind-functions/update-button.php');
+// code to handle adding filters to the products backend
+require_once( __DIR__ . '/ccrind-functions/filters-products.php');
 	
 /********************************************************************************************/
 /**
@@ -74,7 +75,7 @@ function send_email_customer_invoice_all( $recipient, $order = false ) {
     if ( ! $order || ! is_a( $order, 'WC_Order' ) ) 
         return $recipient;
         
-		$add_emails = get_post_meta( $order->id, '_add_emails', true );
+		$add_emails = get_post_meta( $order->get_id(), '_add_emails', true );
         $recipient .= ",$add_emails";
     
     return $recipient;
@@ -83,21 +84,34 @@ function send_email_customer_invoice_all( $recipient, $order = false ) {
 /********************************************************************************************/
 /* use customship code 4 for items thate are unavailable (mass sending to Compass) */
 add_action( 'woocommerce_single_product_summary', 'custom_before_add_to_cart_btn' );
-function custom_before_add_to_cart_btn() 
-{
+function custom_before_add_to_cart_btn() {
 	global $product;
-	
 	$custom = get_post_meta( $product->get_id(), '_customship', true );
-	if( $custom == 4 )
-	{
-		echo "<p style='font-size: 24px;'>* Item Currently Unavailable *</p><br>";
+	if( $custom == 4 ) {
+		echo "<p style='font-size: 24px;'>* Item Currently Unavailable *</p><br>"; }
+	if ( $custom == 5 ) {
+		if ( $product->get_id() == 146062 )
+		{
+			// for CCR 15844 only
+			echo "<p style='font-size: 22px;'>* Please contact us directly to Buy *</p>";
+			echo "<p style='font-size: 22px;'>* Customer must setup own shipping or arrange for Local Pickup *</p>";
+			echo "<p style='font-size: 24px;'>Call: <a href='tel:9315634704'>931-563-4704</a></p>";
+			echo "<p style='font-size: 24px;'>Email: <a href='mailto:sales@ccrind.com'>sales@ccrind.com</a></p><br>";
+		}
+		else {
+		echo "<p style='font-size: 22px;'>* Please contact us directly to Buy *</p>";
+		echo "<p style='font-size: 24px;'>Call: <a href='tel:9315634704'>931-563-4704</a></p>";
+		echo "<p style='font-size: 24px;'>Email: <a href='mailto:sales@ccrind.com'>sales@ccrind.com</a></p><br>"; }
+	}
+	if ( $custom == 6 ) {
+		$GDLot = get_post_meta( $product->get_id(), '_govdeals', true );
+		echo "<p style='font-size: 22px;'>* Item under Auction at GovDeals *</p>";
+		echo "<p style='font-size: 20px;'><a href='https://www.govdeals.com/index.cfm?fa=Main.Item&acctid=25092&itemid=$GDLot' rel='noopener noreferrer' target='_blank'>Click HERE to visit GovDeals auction.</a></p><br>";
 	}
 	
 	$id = $product->get_id();
-	if( $id == 114741 )
-	{
-		echo "<p style='font-size: 24px;'>* Please see the last 2 pictures (ORDER FORM) to see all the options available and prices. Final price may vary from the above $275 listed price. *</p><br>";
-	}
+	if( $id == 114741 ) {
+		echo "<p style='font-size: 24px;'>* Please see the last 2 pictures (ORDER FORM) to see all the options available and prices. Final price may vary from the above $275 listed price. *</p><br>"; }
 }
 /*************************************************************************************************************************/
 
@@ -353,7 +367,7 @@ add_action( 'woocommerce_share', 'add_mobile_contact' );
 function add_mobile_contact()
 {
 	global $product;
-	$id = $product->id;
+	$id = $product->get_id();
 	$sku = $product->get_sku();
 
 	echo '<div class="mobile_contact"><br>
@@ -366,45 +380,6 @@ function add_mobile_contact()
 			<a class="cat_scroll_link" href="#cat_link">SEE ALL PRODUCT CATEGORIES</a></div>';
 }
 /*************************************************************************************************************************/
-// code to make sure multi qty products do not become unpublished when added line item on a new order manually, not working
-add_action( 'save_post', 'fix_multi_qty_error', 13, 3 );
-function fix_multi_qty_error($post_id, $post, $update) {
-	global $typenow;
-	global $wpdb;
-	global $pagenow;
-	if ( 'shop_order' === $typenow ) {
-	$order = wc_get_order( $post_id );
-	$order_id = $post_id;
-	$status = $order->get_status();
-	if ($status == "on-hold") {
-		update_post_meta( $order_id, '_status_sort', wc_clean( 1 ) ); $order->save(); generate_order_log($order, $order_id); 
-	}
-	else if ($status == "processing") {
-		update_post_meta( $order_id, '_status_sort', wc_clean( 2 ) ); $order->save(); generate_order_log($order, $order_id); 
-	}
-	else if ($status == "pending") {
-		update_post_meta( $order_id, '_status_sort', wc_clean( 3 ) ); $order->save(); generate_order_log($order, $order_id); 
-	}
-	else {
-		update_post_meta( $order_id, '_status_sort', wc_clean( null ) ); $order->save(); generate_order_log($order, $order_id); 
-	}
-	
-	$items_first = $order->get_items();
-	foreach( $items_first as $item )
-	{
-		$product = wc_get_product($item->get_product_id());
-		$qty = $product->get_stock_quantity();
-		if ($qty == 0) {
-    		$product->set_status( isset($args['status']) ? $args['status'] : 'private' );
-			$product->save(); 
-		}
-		else {
-    		$product->set_status( isset($args['status']) ? $args['status'] : 'publish' );
-			$product->save(); 
-		}
-	} }
-}
-/*************************************************************************************************************************/
 /** code to change the appearance of the single product page in the webstore */
 /** Jedidiah Fowler */
 // youtube link add button, add category button
@@ -412,7 +387,7 @@ add_action( 'woocommerce_after_add_to_cart_button', 'add_video' );
 function add_video()
 {
 	global $product;
-	$id = $product->id;
+	$id = $product->get_id();
 	$vlink = get_post_meta( $id, '_video', true );
 	
 	echo "<br><br><br>";
@@ -447,7 +422,7 @@ add_action( 'woocommerce_after_single_product', 'add_category' );
 function add_category()
 {
 	global $product;
-	$id = $product->id;
+	$id = $product->get_id();
 	$sku = $product->get_sku();
 	
 	$postProductTerm = wp_get_post_terms( $id, 'product_cat' );
@@ -485,7 +460,7 @@ function add_condition()
     $condition = 0;
 	$customship = 0;
 	$shipclass = $product->get_shipping_class();
-    $id = $product->id;
+    $id = $product->get_id();
     $sku = $product->get_sku();
     $condition = $condition + get_post_meta( $id, '_ebay_condition_id', true );
     $condition_desc = get_post_meta( $id, '_ebay_condition_description', true );
@@ -501,9 +476,16 @@ function add_condition()
 	if (  $customship === 2 )
 	{
 		if( has_term( 'furniture', 'product_cat', $post_id )) { 
-			echo "<strong><h4 style='font-family: \"Black Ops One\",Helvetica,sans-serif;'>CASH PAYMENT ONLY FOR THIS ITEM</h4></strong>"; }
+			echo "<strong><h4 style='font-family: \"Black Ops One\",Helvetica,sans-serif;'>CASH PAYMENT ONLY FOR THIS ITEM</h4></strong>"; 
+			echo "<strong><h4 style='font-family: \"Black Ops One\",Helvetica,sans-serif; font-size:16px;'>CONTACT US DIRECTLY TO ARRANGE ORDER</h4></strong>"; 
+			echo "<strong><h4 style='font-family: \"Black Ops One\",Helvetica,sans-serif;'>CALL: <a href='tel:9215634704'>(931) 563-4704</a></h4></strong>"; 
+			echo "<strong><h4 style='font-family: \"Black Ops One\",Helvetica,sans-serif;'>EMAIL: <a href='mailto:sales@ccrind.com'>sales@ccrind.com</a></h4></strong>"; 
+		}
 		echo "<strong><h2 style='font-family: \"Black Ops One\",Helvetica,sans-serif;'>LOCAL PICKUP ONLY</h2></strong>";
-        echo "<strong><h2 style='font-family: \"Black Ops One\",Helvetica,sans-serif;'>NO SHIPPING FOR THIS ITEM</h2></strong>";
+		if ( $id == 146062 ) {
+			echo "<strong><h2 style='font-family: \"Black Ops One\",Helvetica,sans-serif;'>However, you can setup your own shipping through UPS, FedEx, USPS, etc.</h2></strong>";
+		}
+		else { echo "<strong><h2 style='font-family: \"Black Ops One\",Helvetica,sans-serif;'>NO SHIPPING FOR THIS ITEM</h2></strong>"; }
 		echo "<br>";
 	}
 	
@@ -530,6 +512,12 @@ function add_condition()
         echo "<span class='new-sku'>SKU: " . $sku . "</span>";
         echo "<br>";
     }
+	if (  $customship === 4 )
+	{
+		$qty = $product->get_stock_quantity();
+		echo "Qty: $qty";
+		echo "<br><br>";
+	}
     if ( $translate != "" )
     {
         echo "<font color='#C40808'><b>Item Condition:</b></font>  $translate";
@@ -722,6 +710,7 @@ function my_custom_available_payment_gateways( $gateways )
 	if ( in_array( 'ccrindshipping', $chosen_shipping_rates ) && is_checkout() && ! is_wc_endpoint_url( 'order-pay' ) ) {
 		// Remove payment gateways
 		unset( $gateways['paypal'] );
+		unset( $gateways['ppcp'] );
 		unset( $gateways['ppcp-gateway'] );
 		unset( $gateways['angelleye_ppcp'] );
 		unset( $gateways['quickbookspay'] );
@@ -732,6 +721,7 @@ function my_custom_available_payment_gateways( $gateways )
 	if ( in_array( 'localpickuponly', $chosen_shipping_rates ) && is_checkout() && ! is_wc_endpoint_url( 'order-pay' ) ) {
 		// Remove payment gateways
 		unset( $gateways['paypal'] );
+		unset( $gateways['ppcp'] );
 		unset( $gateways['ppcp-gateway'] );
 		unset( $gateways['angelleye_ppcp'] );
 		unset( $gateways['quickbookspay'] );
@@ -742,6 +732,7 @@ function my_custom_available_payment_gateways( $gateways )
 	if ( in_array( 'wirecashonly', $chosen_shipping_rates ) && is_checkout() && ! is_wc_endpoint_url( 'order-pay' ) ) {
 		// Remove payment gateways
 		unset( $gateways['paypal'] );
+		unset( $gateways['ppcp'] );
 		unset( $gateways['ppcp-gateway'] );
 		unset( $gateways['angelleye_ppcp'] );
 		unset( $gateways['quickbookspay'] );
@@ -773,17 +764,23 @@ add_filter( 'pre_option_woocommerce_default_gateway' . '__return_false', 99 );
 add_filter( 'woocommerce_available_payment_gateways', 'hide_payments' );
 function hide_payments( $available_gateways ) 
 {
+	// trigger for customers only
+   if ( ! is_checkout() && ! is_wc_endpoint_url( 'order-pay' ) ) { return $available_gateways; }
    if ( ! is_admin() ) 
    {
-      $chosen_methods = WC()->session->get( 'chosen_shipping_methods' );
-      $chosen_shipping = $chosen_methods[0];
-      if ( isset( $available_gateways['cod'] ) && 0 === strpos( $chosen_shipping, 'ccrindshipping' ) ) 
-	  {
-         unset( $available_gateways['intuit_payments_credit_card'] );
-		 unset( $available_gateways['quickbookspay'] );
-		 unset( $available_gateways['paypal'] );
-		 unset( $available_gateways['angelleye_ppcp'] );
-      }
+	  if ( WC()->session->get( 'chosen_shipping_methods' ) != "" ) {
+      	$chosen_methods = WC()->session->get( 'chosen_shipping_methods' );
+      	$chosen_shipping = $chosen_methods[0];
+      	if ( isset( $available_gateways['cod'] ) && 0 === strpos( $chosen_shipping, 'ccrindshipping' ) ) 
+	  	{
+         	unset( $available_gateways['intuit_payments_credit_card'] );
+		 	unset( $available_gateways['quickbookspay'] );
+		 	unset( $available_gateways['paypal'] );
+			unset( $available_gateways['ppcp'] );
+			unset( $available_gateways['ppcp-gateway'] );
+		 	unset( $available_gateways['angelleye_ppcp'] );
+      	}
+	  }
    }
    return $available_gateways;
 }
@@ -878,8 +875,8 @@ function edit_product_columns( $columns )
 	$columns['_price_cost'] = __( 'Price / Cost');
 	$columns['_stock_status_combine'] = __( 'SKU / Stock / Status');
 	$columns['cat_date_modifier'] = __( 'Categories / Date Modified');
-    $columns['_warehouse_loc'] = __( 'WH Loc / Lister' );
-    $columns['_ccrind_brand'] = __( 'Brand / Model' );
+    $columns['_warehouse_loc'] = __( 'WH Loc / Lister / Logs' );
+    $columns['_ccrind_brand'] = __( 'Brand / Model / GSF' );
 	$columns['item_stats'] = __( 'L x W x H / LBS / Pallet Fee' );
 	$columns['product_shipping_class'] = __( 'ShipClass / CustomShip? / FrgtClass' );
 	$columns['_auction'] = __('Auction / Date');
@@ -887,14 +884,17 @@ function edit_product_columns( $columns )
 	$columns['_video'] = __('Video');
 	$columns['_sales_channel_links'] = __('Links');
 	$columns['links_input'] = __('Links Input');
-	$columns['_excerpt'] = __('Excerpt Display');
+	$columns['_excerpt'] = __('Excerpt Display / Keyword Terms');
 	$columns['_fix_info'] = __('Fixing Notes');
 	if ($email == "dan@ccrind.com")
 	{
 	$columns['_note_dan'] = __('Dan\'s Notes');
 	}
+	
 	$columns['_soldby'] = __('Sold by:');
 	$columns['_linkboxes'] = __('Edit Links');
+	$columns['generate_quote'] = __('Generate Quote');
+	
     return $columns;
 }
 
@@ -923,7 +923,7 @@ function wooadmin_add_columns( $column, $postid )
 		$searchlink = "https://ccrind.com/wp-admin/edit.php?s=%3D$sku&post_status=all&post_type=product";
 		if ( has_post_thumbnail( $postid ) )
 		{
-			$image = wp_get_attachment_url( get_post_thumbnail_id( $id ), 'single-post-thumbnail' );
+			$image = wp_get_attachment_url( get_post_thumbnail_id( $postid ), 'single-post-thumbnail' );
 			echo "<a href=\"$searchlink\"  rel=\"noopener noreferrer\" target=\"_blank\">
 				<img width=\"180\" src=\"$image\" class=\"attachment-thumbnail size-thumbnail\" alt=\"\" loading=\"lazy\">";
 			echo "<br>";
@@ -958,8 +958,8 @@ function wooadmin_add_columns( $column, $postid )
     }
 	if ( $column == 'cond_test' ) 
 	{
-		$condition = 0;
-		$condition = $condition + get_post_meta( $postid, '_ebay_condition_id', true );
+		$condition = 0; $ccode = intval( get_post_meta( $postid, '_ebay_condition_id', true ));
+		$condition = $condition + $ccode;
 		// translate the ebay condition number to a readable word
 		$translate = "";
    		if ( $condition === 3000 ){ $translate = "Used" ;}
@@ -967,26 +967,26 @@ function wooadmin_add_columns( $column, $postid )
         if ( $condition === 1500 ){ $translate = "New other"; }
     	if ( $condition === 2500 ){ $translate = "Seller refurbished"; }
     	if ( $condition === 1000 ) { $translate = "New"; }
-		if ( $translate != "" ) { echo "<input type='text' class='condinput' name='condinput'  placeholder='$translate'
+		if ( $translate != "" ) { echo "<b>CONDITION:</b><br><input type='text' class='condinput' name='condinput'  placeholder='$translate'
 			title='Enter 0 = For Parts &#013; 1 = Used &#013; 2 = New other &#013; 3 = New &#013; 4 = Seller refurbished'>"; } // &#013; = newline char
-		else { echo "<input type='text' class='condinput' name='condinput' placeholder='-' title='Enter 0 = For Parts &#013; 1 = Used &#013; 2 = New other &#013; 3 = New &#013; 4 = Seller refurbished'>"; }
+		else { echo "<b>CONDITION:</b><br><input type='text' class='condinput' name='condinput' placeholder='-' title='Enter 0 = For Parts &#013; 1 = Used &#013; 2 = New other &#013; 3 = New &#013; 4 = Seller refurbished'>"; }
 
-		if ( get_post_meta( $postid, '_tested', true ) != "" ) { echo "	<div class='testinput'><textarea id='testinput' class='testinput' name='testinput' rows='3' title='Enter current testing status here.' style='color:#8d8d8d; font-weight:bold; font-size:12px;'>" . get_post_meta( $postid, '_tested', true ) . "</textarea></div>"; }
-		else { echo "	<div class='testinput'><textarea id='testinput' class='testinput' name='testinput' rows='3' placeholder='-' title='Enter current testing status here.' style='color:#8d8d8d; font-weight:bold; font-size:12px;'></textarea></div>"; }
+		if ( get_post_meta( $postid, '_tested', true ) != "" ) { echo "TEST INFO:<br><div class='testinput'><textarea id='testinput' class='testinput' name='testinput' rows='3' title='Enter current testing status here.' style='color:#8d8d8d; font-weight:bold; font-size:12px;'>" . get_post_meta( $postid, '_tested', true ) . "</textarea></div>"; }
+		else { echo "<bCONDITION:</b<br><div class='testinput'><textarea id='testinput' class='testinput' name='testinput' rows='3' placeholder='-' title='Enter current testing status here.' style='color:#8d8d8d; font-weight:bold; font-size:12px;'></textarea></div>"; }
 		
 		$addinfo = get_post_meta($postid,'_extra_info',true);
 		if ($addinfo != ""){
-			echo "	<div class='addinfodisplay'><textarea id='addinfodisplay' class='addinfodisplay' name='addinfodisplay' rows='3' title='Enter additional information here.' style='color:#8d8d8d; font-weight:bold; font-size:12px;'>" . get_post_meta( $postid, '_extra_info', true ) . "</textarea></div>"; 
+			echo "<b>ADD. INFO:</b<br><div class='addinfodisplay'><textarea id='addinfodisplay' class='addinfodisplay' name='addinfodisplay' rows='4' title='Enter additional information here.' style='color:#8d8d8d; font-weight:bold; font-size:12px;'>" . get_post_meta( $postid, '_extra_info', true ) . "</textarea></div>"; 
 		}
 		else {
-			echo "	<div class='addinfodisplay'><textarea id='addinfodisplay' class='addinfodisplay' name='addinfodisplay' rows='3' placeholder='Add. Info' title='Enter additional information here.' style='color:#3b5897; font-weight:bold; font-size:12px;'></textarea></div>";
+			echo "<bADD. INFO:</b<br><div class='addinfodisplay'><textarea id='addinfodisplay' class='addinfodisplay' name='addinfodisplay' rows='4' placeholder='Add. Info' title='Enter additional information here.' style='color:#3b5897; font-weight:bold; font-size:12px;'></textarea></div>";
 		}
 	}
 	if ( $column == '_price_cost' ) 
     {
 		$regprice = $product->get_regular_price();
 		$saleprice = $product->get_sale_price();
-        $cost = get_post_meta( $postid, '_cost', true ) + get_post_meta( $postid, '_lsn_cost', true ) + get_post_meta( $postid, '_fbmp_cost', true ) + get_post_meta( $postid, '_cl_cost', true );
+        $cost = intval( get_post_meta( $postid, '_cost', true ) ) + intval( get_post_meta( $postid, '_lsn_cost', true ) ) + intval( get_post_meta( $postid, '_fbmp_cost', true ) ) + intval( get_post_meta( $postid, '_cl_cost', true ) );
 		if( $saleprice == "" ) 
 		{
 			if ($regprice != "") { echo "<input type='text' class='postregprice' name='postregprice'  placeholder='$" . number_format($regprice, 2, '.', ',') . "'>"; }
@@ -1001,12 +1001,35 @@ function wooadmin_add_columns( $column, $postid )
 		else { echo "<input type='text' class='postsalepricee' name='postsalepricee' title='Sale Price: enter 0 or clear to remove' placeholder='(Sale Price)'>"; }
 		if ($cost != "") { echo "<input type='text' class='postcost' name='postcost' title='Item Cost: enter 0 or clear to remove' placeholder='$" . number_format($cost, 2, '.', ',') . "'>"; }
 		else { echo "<input type='text' class='postcoste' name='postcoste' title='Item Cost: enter 0 or clear to remove' placeholder='(Cost)'>"; }
+		// search orders for the product link
+		echo "<br><br><div style='line-height: 1.2; color: #ffffff; text-align: center;'>";
+		echo "<button class='btn s_ord_prod_link' onclick=\"window.open('https://ccrind.com/wp-admin/edit.php?s=$sku&post_status=all&post_type=shop_order&action=-1&m=0&_customer_user&paged=1&orderidfirst=62910&action2=-1','_blank');\" type='button' alt='Search Orders for this Product'></button>";
+		echo "<p style='margin-left: 5px; margin-top:-17px;'>Search Orders<p></div>";
+		// generate contact log
+		$skul = strlen($sku);
+		if ($skul > 4) { $sku_2 = substr($sku, 0, 2); $sku_3 = substr($sku, 2, 1); }
+		else if ($skul == 4) { $sku_2 = substr($sku, 0, 1); $sku_3 = substr($sku, 1, 1); }
+		else { $sku_2 = $sku; $sku_3 = $sku; }
+		$cl = get_post_meta($postid,'_contact_log_made',true);
+		if ( current_user_can('administrator') ) {
+			//echo "<br>contact log value: $cl<br>";
+		}
+		if ($cl) {
+			echo "<br><div style='line-height: 1.2; color: #ffffff; text-align: center;'>";
+			echo "<button class='btn contact_log_link' onclick=\"window.open('https://ccrind.com/log/LV/library/product-contact-logs/$sku_2/$sku_3/$sku.html','_blank');\" type='button' alt='Open Contact Log'></button>";
+			echo "<p style='margin-left: 5px; margin-top:-17px;'>Contact Log<p></div>";
+			
+		}
+		else {
+			echo "<br><div><label for='clcreate' class='clcreateboxl'>Create Contact Log?</label>
+				<input type='checkbox' id='clcreate' name='clcreate' class='clcreatebox' value='1'></div>";
+		}
     }
 	if ( $column == '_stock_status_combine' ) 
     {
 		$sku = get_post_meta( $postid, '_sku', true );
 		$link = get_permalink($postid);
-		echo "<a class='admin_link_skulink' href='$link' rel='noopener noreferrer' target='_blank' title='$link'>
+		echo "<a class='admin_link_skulink' id='admin_link_skulink$postid' href='$link' rel='noopener noreferrer' target='_blank' title='$link'>
 				<div class='admin_link_sku'>
 					$sku
 			  	</div>
@@ -1072,6 +1095,24 @@ function wooadmin_add_columns( $column, $postid )
 		{	
 			echo "<textarea rows='1' name='poststatus' class='poststatus draft' id='poststatus'  placeholder='Draft'></textarea>";
 		}
+		echo "<div><button class='btn copySKU' type='button' data-clipboard-target='#admin_link_skulink$postid'> Copy SKU </button></div>";
+		//echo "<br><br><button class='btn product_isolate_link' onclick=\"window.open('https://ccrind.com/wp-admin/edit.php?s=%3D$sku&post_status=all&post_type=product&action=-1&soldby_filter&product_visibility=0&product_cat&product_type&stock_status&paged=1&postidfirst=143578&action2=-1','_blank');\" type='button' alt='Isolate Product'> Isolate </button>";
+		echo "<div><a class='admin_link_isolink' id='admin_link_isolink$postid' href='https://ccrind.com/wp-admin/edit.php?s=%3D$sku&post_status=all&post_type=product&action=-1&soldby_filter&product_visibility=0&product_cat&product_type&stock_status&paged=1&postidfirst=143578&action2=-1' rel='noopener noreferrer' target='_blank' title='Isolate'>
+				<div class='admin_link_iso'>
+					Isolate
+			  	</div>
+			  </a></div>";
+		// get product name and test for inclusing of CCR number
+		$name = $product->get_name();
+		if ( ! strpos($name, "CCR") && ! strpos($name, "MS") ) { //echo "<br>Test";
+			$name = $name . " CCR$sku";
+			echo "<div><button class='btn copyHNSKU' type='button' data-clipboard-target='#hiddenNameSKU$postid'> Copy Name </button></div>";
+			echo "<div class='hiddenNameSKU' id='hiddenNameSKU$postid'>$name</div>";
+		}
+		else { /*echo "<br>CCR";*/ 
+			echo "<div><button class='btn copyHNSKU' type='button' data-clipboard-target='#hiddenNameSKU$postid'> Copy Name </button></div>";
+			echo "<div class='hiddenNameSKU' id='hiddenNameSKU$postid'>$name</div>";
+		}
     }
 	
 	// combine categories with date modified and modifier
@@ -1097,7 +1138,7 @@ function wooadmin_add_columns( $column, $postid )
 		$updated = get_post_meta( $postid, '_last_changed_field', TRUE );
 		$updatedd = get_post_meta( $postid, '_last_change_desc', TRUE );
 		echo "<br>";
-		echo "<div style='font-size:9px'><textarea id='changedesc' class='changedesc' name='changedesc' rows='9' style='font-size:9px; text-align:center;'>";
+		echo "<div style='font-size:11px'><textarea id='changedesc' class='changedesc' name='changedesc' rows='12' style='font-size:11px; text-align:center;'>";
 		if ($lastuser != ""){ echo "$lastuser
 "; }
 		if ($updated != ""){ echo "$updated
@@ -1140,10 +1181,23 @@ function wooadmin_add_columns( $column, $postid )
     {	
 		$brand = get_post_meta( $postid, '_ccrind_brand', true );
 		$mpn = get_post_meta( $postid, '_ccrind_mpn', true );
+		$gsf = get_post_meta( $postid, '_gsf_value', true );
 		if ($brand == "" ) { echo "<div class='brandmpn'><input type='text' class='brandinput' name='brandinput'  placeholder='Brand' style='opacity:0.3;'></div>"; }
 		else { echo "<div class='brandmpn'><textarea id='brandinput' class='brandinput' name='brandinput'  placeholder='$brand' style='color:#89898a;'></textarea></div>"; }
 		if ($mpn == "" ) {  echo "<div class='brandmpn'><input type='text' class='mpninput' name='mpninput'  placeholder='Model/MPN' style='opacity:0.3;'></div>"; }
 		else { echo "<div class='brandmpn'><textarea id='mpninput' class='mpninput' name='mpninput' rows='3' placeholder='$mpn' style='color:#89898a;'></textarea></div>"; }
+		if ($gsf != ""){ echo "GSF H / M:<div class='aucinputdiv'><input type='text' class='gsfinput' name='gsfinput' title='Google Shopping Feed Value, H/h for Half and M/m for Max.' placeholder='$gsf'></div>"; }
+		else { echo "<div class='aucinputediv'><input type='text' class='gsfinpute' name='gsfinpute'  title='Google Shopping Feed Value, H/h for Half and M/m for Max.' placeholder='(GSF, h or m)'></div>"; }
+		
+		$skul = strlen($sku);
+		if ($skul > 4) { $sku_2 = substr($sku, 0, 2); $sku_3 = substr($sku, 2, 1); }
+		else if ($skul == 4) { $sku_2 = substr($sku, 0, 1); $sku_3 = substr($sku, 1, 1); }
+		else { $sku_2 = $sku; $sku_3 = $sku; }
+		// ship quote log button
+		if ( file_exists("../library/product-quote-logs/$sku_2/$sku_3/ShipQ$sku.html") ) {
+			echo "<br><br><button class='btn ship_quote_log_link' onclick=\"window.open('https://ccrind.com/log/LV/library/product-quote-logs/$sku_2/$sku_3/ShipQ$sku.html','_blank');\" type='button' alt='Open Ship Quote Log'></button>"; 
+			echo "<p style='margin-left: 5px; margin-top:-17px;'>Ship Quote Log<p></div>";
+		}
     }
 	
 	if ( $column == 'item_stats' ) 
@@ -1152,7 +1206,7 @@ function wooadmin_add_columns( $column, $postid )
         $length = $product->get_length();
         $width = $product->get_width();
         $height = $product->get_height();
-		echo "<div id='item_statscopy$post_id'>";
+		echo "<div id='item_statscopy$postid'>";
 		if ($length != "") { 
 			$length = $length . "\" L";
 			echo "<div><input type='text'  class='deminputl' name='deminputl' placeholder='$length'></div>";
@@ -1176,7 +1230,7 @@ function wooadmin_add_columns( $column, $postid )
 		}
 		//echo "</div>";
 		
-		echo "<div class='weightinput'>";
+		echo "<div>";
 		$weight = $product->get_weight();
 		if ($weight != "") { 
 			$weight = $weight . " lbs";
@@ -1188,7 +1242,7 @@ function wooadmin_add_columns( $column, $postid )
 		echo "</div></div>";
 		
 		// pallet fee
-		echo "<div class='cratefeeinput'>";
+		echo "<div>";
 		$cfee = get_post_meta($postid, '_cratefee', true);
 		if ($cfee != "") { 
 			$cfee = "$$cfee";
@@ -1199,7 +1253,10 @@ function wooadmin_add_columns( $column, $postid )
 			echo "<div class='deminputcfeeempty'><textarea id='deminputcfeeempty' class='deminputcfeeempty' name='deminputcfeeempty' rows='2' placeholder='$cfee' style='color:#3b5897; font-weight:bold; font-size:12px; width:55px; resize:none;'></textarea></div>";
 		}
 		echo "</div>";
-		echo "<button class='btn' type='button' data-clipboard-target='#item_statscopy$post_id'> Copy </button>";
+		echo "<button class='btn' type='button' data-clipboard-target='#item_statscopy$postid'> Copy </button>";
+		
+		$ship = get_post_meta( $postid, '_customship', true );
+		if ($ship == 2) { echo "<p style='color: #c40403; background-color: #ffffff; border-radius: 5px; font-weight: bold;'>Local Pickup Only</p>"; }
 		
 		/*echo "<div style='text-align:center;'><button type='submit' name='stats_update' class='stats_update' title='Will update with values input in the fields above. Use \"clear\" or 0 to empty the field.'>Change</button>					</div>
 			</form>";*/
@@ -1235,10 +1292,34 @@ function wooadmin_add_columns( $column, $postid )
 		if ($shipclass == "") { $shipclasstrans = "None (UPS)"; } if ($shipclass == "ltl_freight") { $shipclasstrans = "LTL Freight"; } if ($shipclass == "flat_bed") { $shipclasstrans = "Flat Bed"; } if ($shipclass == "flat_usps2") { $shipclasstrans = "USPS 15.99"; } if ($shipclass == "flat_usps3") { $shipclasstrans = "USPS 19.99"; } if ($shipclass == "flat_usps") { $shipclasstrans = "USPS 9.99"; } if ($shipclass == "free_shipping") { $shipclasstrans = "Free Shipping"; }
 		// translate $ship to words for easy reading understanding
 		$shiptrans = "";
-		if ($ship == 0) { $shiptrans = "No"; } if ($ship == 1) { $shiptrans = "Yes"; } if ($ship == 2) { $shiptrans = "Local Pickup Only"; } 
-		if ($ship == 4) { $shiptrans = "Unavailable"; } if ($ship == 3) { $shiptrans = "Wire / Cash Payment Only"; }
+		if ($ship == 0) { $shiptrans = "0: No"; } if ($ship == 1) { $shiptrans = "1: Yes"; } if ($ship == 2) { $shiptrans = "2: Local Pickup Only"; } 
+		if ($ship == 4) { $shiptrans = "4: Unavailable"; } if ($ship == 3) { $shiptrans = "3: Wire / Cash Only"; } if ($ship == 5) { $shiptrans = "5: Unpurchasable on WS"; } if ($ship == 6) { $shiptrans = "6: GovDeals"; }
+		if ($fc == "") { $fc = "Enter FC #"; }
 		
-		echo "<select id='shipc_select' name='shipc_select' class='shipc_select'>
+		// display labels and input boxes
+		echo "	<div class='customshipinputdiv' style='text-align: center;'><span style='font-size:13px;'><label for='customship'>Custom Ship Code:</label></span>
+				</div>
+				<div>
+					<textarea id='customshipinput$postid' class='customshipinput' name='customshipinput' rows='2'  placeholder='$shiptrans' title='Enter 0 for No, 1 for Yes, 2 for Local Pickup Only, 3 for Wire / Cash Only, 4 for Unavailable, 5 for Unpurchasable, 6 for GovDeals' style='font-size:14px; user-select: all;'></textarea>
+				</div>
+				<select id='cship_select' name='cship_select' class='cship_select'>
+					<option value=''>Change to...</option>
+					<option value='0'>0: No</option>
+        			<option value='1'>1: Yes</option>
+        			<option value='2'>2: Local Pickup Only</option>
+        			<option value='3'>3: Wire / Cash Only</option>
+					<option value='4'>4: Unavailable</option>
+					<option value='5'>5: Unpurchasable on WS</option>
+					<option value='6'>6: GovDeals</option>
+					<option value='7'>7: clear</option>
+				</select>
+				<div>___________________</div>
+				<div class='shipclassinputdiv' style='text-align: center;'><span style='font-size:14px;'><label for='shipclass'>Ship Class:</label></span>
+				</div>
+				<div>
+					<input type='text' class='shipclassinput' name='shipclassinput'  title='Enter 0 for None (UPS), 1 for LTL Freight, Enter 2 for Flat Bed, 3 for Free Shipping, 4 for USPS 9.99, Enter 5 for USPS 15.99, 6 for USPS 19.99' placeholder='$shipclasstrans'>
+				</div>
+				<select id='shipc_select' name='shipc_select' class='shipc_select'>
 					<option value=''>Change to...</option>
 					<option value='0'>None (UPS)</option>
         			<option value='1'>LTL Freight</option>
@@ -1247,15 +1328,11 @@ function wooadmin_add_columns( $column, $postid )
 					<option value='4'>USPS 9.99</option>
 					<option value='5'>USPS 15.99</option>
         			<option value='6'>USPS 19.99</option>
-				</select>";
-		
-		echo "	<div class='shipclassinputdiv' style='text-align: center;'><span style='font-size:10px;'><label for='shipclass'>SC:</label></span>
-					<input type='text' class='shipclassinput' name='shipclassinput'  title='Enter 0 for None (UPS), 1 for LTL Freight, Enter 2 for Flat Bed, 3 for Free Shipping, 4 for USPS 9.99, Enter 5 for USPS 15.99, 6 for USPS 19.99' placeholder='$shipclasstrans'>
+				</select>
+				<div>___________________</div>
+				<div class='freightclassinputdiv' style='text-align: center;'><span style='font-size:14px;'><label for='freightclass'>Freight Class:</label></span>
 				</div>
-				<div class='customshipinputdiv' style='text-align: center;'><span style='font-size:10px;'><label for='customship'>CS?:</label></span>
-					<input type='text' class='customshipinput' name='customshipinput'  title='Enter 0 for No, 1 for Yes, and 2 for Local Pickup Only, 3 for Wire / Cash Only' placeholder='$shiptrans'>
-				</div>
-				<div class='freightclassinputdiv' style='text-align: center;'><span style='font-size:10px;'><label for='freightclass'>FC:</label></span>
+				<div>
 					<input type='text' class='freightclassinput' name='freightclassinput'  placeholder='$fc'>
 				</div>";
 	}
@@ -1266,13 +1343,17 @@ function wooadmin_add_columns( $column, $postid )
     {
 		$auc = get_post_meta( $postid, '_auction', true );
 		$aucdate = get_post_meta( $postid, '_auction_date', true );
+		$GDLot = get_post_meta( $postid, '_govdeals', true );
 
-			if ($auc != ""){ echo "<div class='aucinputdiv'><textarea id='aucinput' class='aucinput' name='aucinput' title='Name of the Auction company, use clear to empty the value.' placeholder='$auc'></textarea></div>"; }
+			if ($auc != ""){ echo "<div class='aucinputdivNE'><textarea id='aucinput' class='aucinput' name='aucinput' title='Name of the Auction company, use clear to empty the value.' placeholder='$auc'></textarea></div>"; }
 			else { echo "<div class='aucinputediv'><input type='text' class='aucinpute' name='aucinpute'  title='Name of the Auction company, use clear to empty the value.' placeholder='(Auc Name)'></div>"; }
 			if ($aucdate != "" ){ $aucdate = date('m/d/y', strtotime($aucdate)); echo "<div class='aucdddiv'>
 				<input type='text' class='aucdinput' name='aucdinput'  title='Date of Auction' placeholder='$aucdate'></div>"; }
 			else { $aucdate = "(Auc Date)"; echo "<div class='aucdediv'><input type='text' class='aucdinpute' name='aucdinpute'  title='Date of Auction, use clear to empty the value.' placeholder='$aucdate'></div>"; }
 		echo	"<div class='aucdinputdiv'><input type='date' class='newaucdinput' name='newaucdinput'  title='Enter new Auction Date information.' placeholder='mm/dd/yyyy'></div>";
+		echo "<br>";
+		if ($GDLot != "" ){ echo "<input type='text' class='gdlotinput' name='gdlotinput'  title='GovDeals Lot #' placeholder='$GDLot'>"; }
+		else { echo "<input type='text' class='gdlotinpute' name='gdlotinpute'  title='GovDeals Lot #' placeholder='Lot #'>"; }
 	}
 	
 	if ( $column == 'listed_on_ebay' )
@@ -1330,17 +1411,15 @@ function wooadmin_add_columns( $column, $postid )
 	{
 		$vlink = get_post_meta( $postid, '_video', true );
 		
-		if ( $vlink == "" )
-		{
-			echo"";
-		}
+		if ( substr( $vlink, 0, 1 ) != "h" ) { /* do nothing */ }
 		else
 		{
 			echo "<a class='admin_link_yt' 
 					style='display: inline-block; 
 					text-align:center; 
 					-webkit-border-radius: 5px;
-					border-radius: 5px;'
+					border-radius: 5px;
+					margin-bottom: 5px;'
 					href='$vlink' rel='noopener noreferrer' target='_blank'>
 					<span id='initial'><img src=\"https://ccrind.com/wp-content/uploads/2020/08/yt-logo-small.png\" title='$vlink' alt=\"YT\"></span>
 					<span id='onhover'><img src=\"https://ccrind.com/wp-content/uploads/2020/08/yt-logo-small-invert.png\"  title='$vlink' alt=\"YT\"></span>
@@ -1351,7 +1430,7 @@ function wooadmin_add_columns( $column, $postid )
 		echo "<div style='
 			overflow: hidden;
     		white-space: nowrap;
-			margin-bottom: 5px;'>";
+			margin-bottom: 10px;'>";
         $lsn = get_post_meta( $postid, '_lsn', true );
 		$lsnlink = get_post_meta( $postid, '_lsnlink', true );
 		
@@ -1391,7 +1470,7 @@ function wooadmin_add_columns( $column, $postid )
 		echo "<div style='
 			overflow: hidden;
     		white-space: nowrap;
-			margin-bottom: 5px;'>";
+			margin-bottom: 10px;'>";
 		
         $fblink = get_post_meta( $postid, '_fbmp', true );
 		$fblink = strtolower( $fblink );
@@ -1421,15 +1500,38 @@ function wooadmin_add_columns( $column, $postid )
 					-webkit-border-radius: 20px;
 					border-radius: 20px;'><strong> &nbsp; M &nbsp; </strong></p>";
 		}
-		else if ( substr( $fblink, 0, 1 ) == "h" )
+		else if ( substr( $fblink, 0, 5 ) == "https" )
 		{
+			//echo "Link:<br>";
+			$fbID = get_post_meta( $postid, '_fbID', true );
+			if ($fbID != "") {
+				echo "<a class='admin_link_fb2' 
+					style='display: inline-block;
+					text-align:center; 
+					-webkit-border-radius: 5px;
+					border-radius: 5px;
+					transition-duration: 0.3s;
+					margin-bottom: 5px;'
+					href='https://www.facebook.com/marketplace/edit?listing_id=$fbID' rel='noopener noreferrer' target='_blank'>FB Edit</a><br>";
+			}
+			else {
+				echo "<a class='admin_link_fb2' 
+					style='display: inline-block;
+					text-align:center; 
+					-webkit-border-radius: 5px;
+					border-radius: 5px;
+					transition-duration: 0.3s;
+					margin-bottom: 5px;'
+					href='$fblink' rel='noopener noreferrer' target='_blank'>FB Link</a><br>";
+			}
+			//echo "Search:<br>";
 			echo "<a class='admin_link_fb2' 
 					style='display: inline-block;
 					text-align:center; 
 					-webkit-border-radius: 5px;
 					border-radius: 5px;
 					transition-duration: 0.3s;'
-					href='$fblink' rel='noopener noreferrer' target='_blank'>
+					href='https://www.facebook.com/marketplace/you/selling?title_search=$sku' rel='noopener noreferrer' target='_blank'>
 					<span id='initial'><img src=\"https://ccrind.com/wp-content/uploads/2020/08/new-facebook-logo-1.png\" width=\"30\" height=\"30\" title='$fblink' alt=\"FBMP\"></span>
 					<span id='onhover'><img src=\"https://ccrind.com/wp-content/uploads/2020/08/new-facebook-logo-nc.png\" width=\"30\" height=\"30\" title='$fblink' alt=\"FBMP\"></span>
 					</a>";
@@ -1622,8 +1724,8 @@ function wooadmin_add_columns( $column, $postid )
 				if ( $vlink == "" ) { echo "<div class='linkinputdiv'><label>YT:</label><input type='text' class='vlinkinput' name='vlinkinput'  placeholder='YT' style='opacity:0.3;'></div>"; }
 				else { echo "<div class='linkinputdiv'><label>YT:</label><input type='text' class='vlinkinput' name='vlinkinput'  placeholder='$vlink'></div>"; }
 		
-				if ( $lsn == "" ) { echo "<div class='linkinputdiv'><label>LSN:</label><input type='text' class='lsninput' name='lsninput'  placeholder='LSN' style='opacity:0.3;'></div>"; }
-				else { echo "<div class='linkinputdiv'><label>LSN:</label><input type='text' class='lsninput' name='lsninput'  value='$lsn'></div>"; }
+				if ( $lsn == "" ) { echo "<div class='linkinputdiv'><label>LSN Account:</label><input type='text' class='lsninput' name='lsninput'  placeholder='LSN' style='opacity:0.3;'></div>"; }
+				else { echo "<div class='linkinputdiv'><label>LSN Account:</label><input type='text' class='lsninput' name='lsninput'  value='$lsn'></div>"; }
 		
 				if ( $lsnlink == "" ) { echo "<div class='linkinputdiv'><label>LSN:</label><input type='text' class='lsnlinput' name='lsnlinput'  placeholder='Link' style='opacity:0.3;'>"; }
 				else { echo "<div class='linkinputdiv'><label>LSN:</label><input type='text' class='lsnlinput' name='lsnlinput'  value='$lsnlink'>"; }
@@ -1649,27 +1751,29 @@ function wooadmin_add_columns( $column, $postid )
 				else { echo "<div class='linkinputdiv'><label>360:</label><input type='text' class='threesixtylink' name='threesixtylink'  value='$tslink'></div>"; }
 		/*echo "	<div style='text-align:center;'><button type='submit' name='linksinput' class='linksinput' title='Update Links and Associated Costs'>Change</button></div>
 			  </form>";*/
-				echo "<a href='https://ccrind.com/log/LV/library/LSN/LSN.html' rel='noopener noreferrer' target='_blank'><label>LSN Renew Date:</label></a><div class='linkinputdiv'><input type='text' class='lsnaccdate' name='lsnaccdate'  placeholder='Name'>";
-				echo "<input type='text' class='lsndaterenew' name='lsndaterenew'  placeholder='Date'></div>";
+				echo "<a href='https://ccrind.com/log/LV/library/LSN/LSN.html' rel='noopener noreferrer' target='_blank'><label>LSN Renew Date:</label></a><div class='linkinputdiv'><input type='text' class='lsnaccdate' name='lsnaccdate'  placeholder='Name' title='Enter Account name in the format of lsn** or lsn*, * being the account number'>";
+				echo "<input type='text' class='lsndaterenew' name='lsndaterenew'  placeholder='Date' title='Enter Date in the format of **/**/** or **/**, single numbers do not require leading zeros'></div>";
 	}	
 	
 	if ( $column == '_excerpt' ) 
     {
 		$ex = get_post_meta($postid,'_sdcp',true);
+		$keyterms = get_post_meta($postid,'_key_terms',true);
 		if ($ex != "") {
-			echo "	<div class='excerptdisplay' style='user-select: all;'><textarea id='excerptdisplay$postid' class='excerptdisplay' name='excerptdisplay' rows='15' style='font-size:9px; user-select: all;'>$ex</textarea></div>"; 
-			echo "<button class='btn' type='button' data-clipboard-target='#excerptdisplay$postid' style='margin-left: 40px;'> Copy </button>";
+			echo "	<div class='excerptdisplay' style='user-select: all;'><textarea id='excerptdisplay$postid' class='excerptdisplay' name='excerptdisplay' rows='12' style='font-size:10px; user-select: all;'>$ex</textarea></div>"; 
+			echo "<button class='btn excerptdisplaycopy' type='button' data-clipboard-target='#excerptdisplay$postid' style='margin-left: 40px;'> Copy </button>";
 		}
+		echo "	<div class='keytermsdisplay' style='user-select: all;'><textarea id='keytermsdisplay$postid' class='keytermsdisplay' name='keytermsdisplay' rows='3' style='font-size:10px; user-select: all;'>$keyterms</textarea></div>"; 
 	}
 	
 	if ( $column == '_fix_info' ) 
     {
 		$fixinfo = get_post_meta($postid,'_fix_info',true);
 		if ($fixinfo != ""){
-			echo "	<div class='fixinfodisplaydiv'><textarea id='fixinfodisplay' class='fixinfodisplay' name='fixinfodisplay' rows='11' title='Enter fixing note information here.  Enter the word \"clear\" to empty.'>$fixinfo</textarea></div>";  
+			echo "	<div class='fixinfodisplaydiv'><textarea id='fixinfodisplay' class='fixinfodisplay' name='fixinfodisplay' rows='15' title='Enter fixing note information here.  Enter the word \"clear\" to empty.'>$fixinfo</textarea></div>";  
 		}
 		else {
-			echo "	<div class='fixinfodisplaydiv'><textarea id='fixinfodisplay' class='fixinfodisplay' name='fixinfodisplay' rows='11' placeholder='Fixing Info' title='Enter fixing note information here.'></textarea></div>";
+			echo "	<div class='fixinfodisplaydiv'><textarea id='fixinfodisplay' class='fixinfodisplay' name='fixinfodisplay' rows='15' placeholder='Fixing Info' title='Enter fixing note information here.'></textarea></div>";
 		}
 	}
 	
@@ -1677,6 +1781,7 @@ function wooadmin_add_columns( $column, $postid )
 	{
 	if ( $column == '_note_dan' ) 
     {
+		$note = get_post_meta( $postid, '_note_dan', true );
 		if ($note != ""){
 			echo "	<div class='notedandisplaydiv'><textarea id='notedandisplay' class='notedandisplay' name='notedandisplay' rows='11' title='Enter note information here.  Enter the word \"clear\" to empty.'>" . get_post_meta( $postid, '_note_dan', true ) . "</textarea></div>"; 
 		}
@@ -1685,6 +1790,8 @@ function wooadmin_add_columns( $column, $postid )
 		}
 	}
 	}
+	
+	
 	
 	if ( $column == '_soldby' ) 
     {
@@ -1867,155 +1974,58 @@ function wooadmin_add_columns( $column, $postid )
 		// end massive form
 		echo "</form>";
 	}
-}
-
-// add values to the filter menu regarding total cost and total price
-add_action( 'restrict_manage_posts', 'display_total_price' );
-function display_total_price( $post_type ) {
-	// Check this is the products screen
-	if( $post_type == 'product' ) {	
-		global $wp_query;
-		$ccrind_total_price;
-		$ccrind_total_cost;
-		$ccrind_total_price = 0;
-		$ccrind_total_cost = 0;
-			
-		$q = $wp_query;
-		$q->query_vars['posts_per_page'] = 200;
-		$the_query = new WP_Query($q->query_vars);
-		foreach( $the_query->posts as $post ){
-			$product = wc_get_product( $post );
-			$postid = $product->get_id();
-			$cost = get_post_meta( $postid, '_cost', true ) + get_post_meta( $postid, '_lsn_cost', true ) + get_post_meta( $postid, '_fbmp_cost', true ) + get_post_meta( $postid, '_cl_cost', true );
-			$ccrind_total_cost = $ccrind_total_cost + ($cost * $product->get_stock_quantity());
-			$ccrind_total_price = $ccrind_total_price + ($product->get_regular_price() * $product->get_stock_quantity());
-		}
-		echo "&nbsp;&nbsp;<span class='ccrindtotalprice'>Total Price: $" . number_format($ccrind_total_price, 2, '.', ',') . "</span>&nbsp;&nbsp;&nbsp;<span class='ccrindtotalcost'>Total Cost: $" . number_format($ccrind_total_cost, 2, '.', ',') . "</span>&nbsp;&nbsp;";
-		// filter warning (not working)
-		/*if ( (isset( $_GET['soldby_filter'] ) && $_GET['soldby_filter'] != '') ||
-		     (isset( $_GET['product_visibility'] ) && $_GET['product_visibility'] != '') ||
-			 (isset( $_GET['product_cat'] ) && $_GET['product_cat'] != '') ||
-			 (isset( $_GET['product_type'] ) && $_GET['product_type'] != '') ||
-			 (isset( $_GET['stock_status'] ) && $_GET['stock_status'] != '') ) { echo "<span class='filterwarning'>Filter In Use</span>&nbsp;&nbsp;"; } */
-	}
-}
-	
-// filter by sold by:
-add_action( 'restrict_manage_posts', 'my_custom_product_filters' );
-function my_custom_product_filters( $post_type ) {
-
-$value1 = '';
-$value2 = '';
-$value3 = '';
-$value4 = '';
-$value5 = '';
-$value6 = '';
-$value7 = '';
-$value8 = '';
-$value9 = '';
-$value10 = '';
-$value11 = '';
-$value12 = '';
-$value13 = '';
-
-// Check if filter has been applied already so we can adjust the input element accordingly
-if( isset( $_GET['soldby_filter'] ) ) 
-{
-	switch( $_GET['soldby_filter'] ) 
+	if ( 'generate_quote' === $column )  
 	{
-		// We will add the "selected" attribute to the appropriate <option> if the filter has already been applied
-		case 'ws':
-			$value1 = ' selected';
-			break;
-		case 'wso':
-			$value2 = ' selected';
-			break;
-		case 'ebay':
-			$value3 = ' selected';
-			break;
-		case 'ebayo':
-			$value4 = ' selected';
-			break;
-		case 'qbo':
-			$value5 = ' selected';
-			break;
-		case 'qboo':
-			$value6 = ' selected';
-			break;
-		case 'fb':
-			$value7 = ' selected';
-			break;
-		case 'lsn':
-			$value8 = ' selected';
-			break;	
-		case 'auc':
-			$value9 = ' selected';
-			break;
-		case 'auco':
-			$value10 = ' selected';
-			break;
-		case 'keep':
-			$value11 = ' selected';
-			break;
-		case 'fix':
-			$value12 = ' selected';
-			break;
-		case 'scrapped':
-			$value13 = ' selected';
-			break;
+		$ship = get_post_meta( $postid, '_customship', true );
+		// translate $shipID to work with javascript function later
+		$shiptrans = "";
+		if ($ship == 2) { $shiptrans = "Local Pickup Only"; 
+		echo "<div style='text-align: center; color: #c40403; background-color: #ffffff; border-radius: 5px; font-weight: bold;'>Local Pickup Only</div>"; }
+		else {
+		echo "<div class=order_notes_area' style='line-height: 1.2; height: 250px; width: 160px; overflow: auto;'>
+		<form action='https://ccrind.com/wp-admin/admin.php?page=ccr-admin-menu%2Fshipquote-admin-menu-ccr.php' method='post' target='_blank'>
+		<input type='hidden' name='productidallq' value='$postid'>
+		<input type='text' class='shipCostInput' name='zip'' placeholder='Ship Zip'>
+		<input type='text' class='genQnameInput' name='nameID' placeholder='Name / ID / Phone#'>
+		<div><label for='lift' class='liftboxl'>Liftgate?</label>
+		<input type='checkbox' id='lift' name='lift' class='liftbox' value='1'></div>
+		<div><label for='addtype' class='addtypeboxl'>Resid Adr?</label>
+		<input type='checkbox' id='addtype' name='addtype' class='addtypebox' value='1'></div>
+		<div><label for='access' class='accessboxl'>Limited Ac?</label>
+		<input type='checkbox' id='access' name='access' class='accessbox' value='1'></div>
+		<div><label for='insidedelivery' class='insidedeliveryboxl'>Inside Delivery?</label>
+		<input type='checkbox' id='insidedelivery' name='insidedelivery' class='insidedeliverybox' value='1'></div>
+		<div><label for='terminal' class='terminalboxl'>Terminal?</label>
+		<input type='checkbox' id='terminal' name='terminal' class='terminalbox' value='1'></div>
+		<div><label for='flip' class='flipboxl'>OK reorient?</label>
+		<input type='checkbox' id='flip' name='flip' class='flipbox' value='1'></div>
+		<div style='margin: 10px;'><input type='submit'></div>
+		<p>Optional Fields:</p>
+		<div><label for='pallet40' class='pallet40boxl'>48x40</label>
+		<input type='checkbox' id='pallet40' name='pallet40' class='pallet40box' value='1'></div>
+		<div><label for='pallet48' class='pallet48boxl'>48x48</label>
+		<input type='checkbox' id='pallet48' name='pallet48' class='pallet48box' value='1'></div>
+		<div class='height_inputBEdiv'>
+		<input type='text' class='shipCostInput' name='length' placeholder='L'></div>
+		<div class='width_inputBEdiv'>
+ 		<input type='text' class='shipCostInput' name='width' placeholder='W'></div>
+		<div class='height_inputBEdiv'>
+ 		<input type='text' class='shipCostInput' name='height' placeholder='H'></div>
+		<input type='text' class='shipCostInput' name='weight' placeholder='Weight'>
+		<div class='pallet_feeBEdiv'><p style='color: #ffffff; font-size: 10px;'>Pallet Fee</p>
+		<input type='text' class='_pallet_feeBE' name='pfee' placeholder='Pallet Fee'></div>
+		<div class='pallet_feeBEdiv'><p style='color: #ffffff; font-size: 10px;'>Item Price</p>
+		<input type='text' class='shipCostInput' name='value' placeholder='Price'></div>
+		<div class='length_inputBEdiv2'><input type='text' class='shipCostInput' name='sku' placeholder='SKU'></div>
+		<div class='length_inputBEdiv2'><input type='text' class='shipCostInput' name='name' placeholder='Product Name' title='Product Name'></div>
+		</form>
+		</div>";
+		}
 	}
 }
+/**********************************************************************************************/
 
-// Check this is the products screen
-if( $post_type == 'product' ) 
-{	
-	// Add your filter input here. Make sure the input name matches the $_GET value you are checking above.
-	echo '<select name="soldby_filter">';
-			
-	echo '<option value>Sold by:</option>';
-	echo '<option value="ws"' . $value1 . '>WS</option>';
-	echo '<option value="wso"' . $value2 . '>WS Order</option>';
-	echo '<option value="ebay"' . $value3 . '>eBay</option>';
-	echo '<option value="ebayo"' . $value4 . '>eBay Order</option>';
-	echo '<option value="qbo"' . $value5 . '>QBO</option>';
-	echo '<option value="qboo"' . $value6 . '>Open QBO Order</option>';
-	echo '<option value="fb"' . $value7 . '>Facebook</option>';
-	echo '<option value="lsn"' . $value8 . '>LSN</option>';
-	echo '<option value="auc"' . $value9 . '>Auction</option>';
-	echo '<option value="auco"' . $value10 . '>Sent to Auction</option>';
-	echo '<option value="keep"' . $value11 . '>Keeping</option>';
-	echo '<option value="fix"' . $value12 . '>Fixing</option>';
-	echo '<option value="scrapped"' . $value13 . '>Scrapped</option>';
-			
-	echo '</select>';
-}
-// end my_custom_product_filters function
-}
-add_action( 'pre_get_posts', 'apply_my_custom_product_filters' );
-function apply_my_custom_product_filters( $query ) {
 
-global $pagenow;
-// Ensure it is an edit.php admin page, the filter exists and has a value, and that it's the products page
-if ( $query->is_admin && $pagenow == 'edit.php' && isset( $_GET['soldby_filter'] ) && $_GET['soldby_filter'] != '' && $_GET['post_type'] == 'product' ) 
-{		
-	// Create meta query array and add to WP_Query
-	$meta_key_query = array(
-		array(
-			'meta_key'     => '_soldby',
-			'value'        => esc_attr( $_GET['soldby_filter'] ),
-			),
-	);
-	// set the query and order it by price in descending order
-	$query->set( 'meta_query', $meta_key_query );
-	$query->set( 'orderby', 'meta_value_num' );
-	$query->set( 'order', 'desc' );
-	$query->set( 'meta_value',' ');
-	$query->set( 'meta_compare','!=');
-    $query->set( 'meta_key', '_regular_price' );
-}
-// end apply_my_custom_product_filters function
-}
-/* END ADD FILTER CODE ********************************************************************************/
 // sortable columns designated product columns sort
 add_action( 'manage_edit-product_sortable_columns', 'sortable_product_column' );
 function sortable_product_column( $columns ) 
@@ -2054,7 +2064,12 @@ function woo_meta_orderby( $query )
 	}
 	if( 'Price / Cost' == $orderby ) {
 		$query->set( 'orderby', 'meta_value_num' );
-		$query->set( 'order', 'DESC' );
+		$order = "";
+		if ( isset($_GET['order']) ){ $order = $_GET['order'];}
+		if ($order == "desc") { $order = "asc"; }
+		else if ($order == "asc") { $order = "desc"; }
+		else { $order = "desc"; }
+		$query->set( 'order', $order );
 		$query->set('meta_value',' ');
 		$query->set('meta_compare','!=');
         $query->set( 'meta_key', '_regular_price' );
@@ -2447,7 +2462,7 @@ add_filter( 'post_class', function( $classes ) {
 	}
 	return $classes;
 } );
-/*************************************************************************************************************************/
+/*************************************************************************************************************************/ 
 
 /* register custom fields for prepopulation in the google product feed */
 function lw_woocommerce_gpf_custom_field_list( $list ) {
@@ -2456,6 +2471,7 @@ function lw_woocommerce_gpf_custom_field_list( $list ) {
     $list['meta:_ccrind_price'] = 'google ads price';
 	$list['meta:_ccrind_brand'] = 'CCRIND brand';
 	$list['meta:_ccrind_mpn'] = 'CCRIND mpn';
+	$list['meta:_gsf_value'] = 'GSF Value';
 	$list['meta:_product_tier'] = 'CCRIND product tier';
 	$list['product_visiblity'] = 'Visibility';
 	$list['meta:_priceValidUntil'] = 'priceValidUntil';
@@ -2470,7 +2486,7 @@ add_filter( 'woocommerce_gpf_custom_field_list', 'lw_woocommerce_gpf_custom_fiel
 **/
 function shop_display_skus() {
 	global $product;
-	$id = $product->id;
+	$id = $product->get_id();
 	$loc = get_post_meta( $id, '_warehouse_loc', true );
 	$qty = $product->get_stock_quantity();
 	if ( $product->get_sku() ) {
@@ -2487,7 +2503,7 @@ function shop_display_skus() {
 }
 add_action( 'woocommerce_after_shop_loop_item', 'shop_display_skus', 9 );
 /*************************************************************************************************************************/
-// add admin order columns
+// admin add columns to orders
 function add_order_item_column_header( $columns ) {
     $new_columns = array();
     foreach ( $columns as $column_name => $column_info ) {
@@ -2537,6 +2553,12 @@ function add_order_item_column_header( $columns ) {
 		if ( 'shipping_address' === $column_name ) {
 			$new_columns['update_order'] = __( 'Update Order', 'ccrind' );
         }
+		if ( 'shipping_address' === $column_name ) {
+			$new_columns['generate_quote'] = __( 'Generate Quote', 'ccrind' );
+        }
+		if ( 'wc_actions' === $column_name ) {
+			$new_columns['instructions'] = __( 'Instructions', 'ccrind' );
+        }
     }
 
     return $new_columns;
@@ -2580,7 +2602,7 @@ function add_order_item_column_content( $column ) {
 	$method   = $order->get_payment_method();
 	$keeponhold = get_post_meta($orderid, '_saved_status', true);
 	$email	  = $order->get_billing_email();
-	$add_emails = get_post_meta( $order->id, '_add_emails', true );
+	$add_emails = get_post_meta( $orderid, '_add_emails', true );
 	$subj	  = $order->get_order_number();
 	$phone    = $order->get_billing_phone();
 	if ($phone == "") { $phone = get_post_meta( $orderid, '_saved_phone', true ); }
@@ -2596,7 +2618,7 @@ function add_order_item_column_content( $column ) {
 	// order month page variables
 	$date = $order->get_date_created(); $date_converted = $date->format('m-d-y'); $month = date("m",strtotime($date)); $year = date("Y",strtotime($date));
 	$paydate_o = $order->get_date_paid(); 
-	if ($paydate_o != "") { $paydate = $paydate_o->format('m-d-y'); $month = date("m",strtotime($paydate_o)); $year = date("Y",strtotime($paydate_o)); }
+	if ($paydate_o != "") { $paydate = $paydate_o->format('m-d-y'); $month = date("m",strtotime($paydate_o)); $year = date("Y",strtotime($paydate_o)); } else { $paydate = " "; }
 	switch ($month) {
     	case "01": $month_trans = "01-January"; break;
    		case "02": $month_trans = "02-February"; break;
@@ -2675,14 +2697,23 @@ function add_order_item_column_content( $column ) {
 			if ($ccfee == 0 && $method == "None") {
 				if ($status == "pending"){ echo "<div class='updateme'>UPDATE ORDER TO PREP</div><br><br>"; }
 			}
+			echo '<div style="display: inline-block; 
+					text-align:center; 
+					-webkit-border-radius: 5px;
+					border-radius: 5px;
+					background-color: #ffffff;
+					padding-top: 10px;
+					padding-bottom: 10px;
+					overflow-wrap: break-word !important; 
+					word-break: break-all !important;"';
 			echo '<p class="admin_ebay_sold" style="display: inline-block; 
 					text-align:center; 
 					-webkit-border-radius: 5px;
 					border-radius: 5px;">
 					<img src="https://ccrind.com/wp-content/uploads/2019/11/ebaylogo-e1573053326628.png" title="ebay Sold" alt="ebay">
-					</p><br>';
-			echo '<p>'.$ebayuserlink.'</p>';
-			echo "<p id='EBoNum$orderid'>".$ebaylink."</p>";
+					</p>';
+			echo '<p>'.$ebayuserlink.'</p><br>';
+			echo "<p id='EBoNum$orderid'>".$ebaylink."</p></div>";
 		}
 		else //its a ccrind.com order
 		{
@@ -2725,7 +2756,7 @@ function add_order_item_column_content( $column ) {
 		// admin only fields 
 		if( current_user_can('administrator') && $status == "on-hold" )
 		{
-			$test2 = $order->billing_address_1;
+			$test2 = $order->get_billing_address_1();
 			$phone = $order->get_billing_phone();
 			if ($test2) {
 			if ( $phone != "") {
@@ -2734,11 +2765,12 @@ function add_order_item_column_content( $column ) {
 				else { $num = "C$orderid"; }
 				$msg = "New order $num ready for ship charge";
 				echo "<div class='ship_ready_text' id='shipready$orderid' style='height: 1px; line-height: 1px; font-size: 1px; overflow: auto; user-select: all; opacity: 0;'>$msg</div>";
-				echo "<button class='btn shipreadybutton' type='button' alt='Copy Auto-Generated shipready Text' data-clipboard-target='#shipready$orderid'><text style='color: #9c7349 !important;'>Ship Ready</text></button>";
+				echo "<button class='btn shipreadybutton' type='button' alt='Copy Shipping Name' data-clipboard-target='#shipready$orderid'></button>";
+				echo "<p style='margin-left: 5px; margin-top:-17px;'>Ship Ready<p>";
 			} }
 		}
 		if( current_user_can('administrator') && ($status == "on-hold" || $status == "pending" ) ) {
-			$sentfollowupdate = get_post_meta( $orderid, '_sent_followup', true ); $sentfollowupdateTrim = date_format(date_create_from_format('y-m-d', $sentfollowupdate), 'm-d-y');
+			/* = get_post_meta( $orderid, '_sent_followup', true ); $sentfollowupdateTrim = date_format(date_create_from_format('y-m-d', $sentfollowupdate), 'm-d-y');
 			if ($sentfollowupdate != "") {
 				if ( strtotime($sentfollowupdate) < strtotime('-2 days') ) { 
 					if( $imageflag ) { $num = $salesrecord; } 
@@ -2747,16 +2779,17 @@ function add_order_item_column_content( $column ) {
 					echo "<div class='ship_ready_text' id='cancelready$orderid' style='height: 1px; line-height: 1px; font-size: 1px; overflow: auto; user-select: all; opacity: 0;'>$msg2</div>";
 					echo "<button class='btn cancelreadybutton' type='button' alt='Copy Auto-Generated shipready Text' data-clipboard-target='#cancelready$orderid'><text style='color: #c40403 !important;'>Cancel Due</text></button>";
 				}
-			}
+			}*/
 		}
 	}
 	if ( 'order_date' === $column )	
 	{
 		$allsku = "";
 		foreach( $items_first as $item ) {
+			$product = "";
 			$product = wc_get_product($item->get_product_id());
 			$id = $item->get_product_id();
-			$sku = $product->get_sku(); 
+			if ($product) { $sku = $product->get_sku(); }
 			if ( has_post_thumbnail( $id ) ) {
 				$allsku = $allsku . $sku . "<br>";
 			}
@@ -2771,11 +2804,11 @@ function add_order_item_column_content( $column ) {
 				echo "<a class='order_item_link' href='https://ccrind.com/wp-admin/edit.php?s=%3D$sku&post_status=all&post_type=product&action=-1&soldby_filter&product_visibility=0&product_type&stock_status&paged=1&postidfirst=106269&action2=-1' rel='noopener noreferrer' target='_blank'><strong>$sku</strong></a><br>";
 				$image = wp_get_attachment_url( get_post_thumbnail_id( $id ), 'single-post-thumbnail' );
 				echo "<a href=\"$image\"  rel=\"noopener noreferrer\" target=\"_blank\">
-				<img width=\"180\" src=\"$image\" class=\"attachment-thumbnail size-thumbnail\" alt=\"\" loading=\"lazy\">";
+				<img width=\"180\" src=\"$image\" class=\"attachment-thumbnail size-thumbnail\" alt=\"\" loading=\"lazy\"></a>";
 			}
 		}
 		echo "</div>";
-		if ($paydate != "") {
+		if ($paydate_o != "") {
 			echo "<div>Paid: $paydate</div>"; }
 			//$paidM = substr($paydate, 0, 2); echo "<div>PaidM: $paidM</div>"; 
 			//$date = $order->get_date_created(); $date_converted = $date->format('m-d-y'); $month = $orderM = date("m",strtotime($date)); $year = date("Y",strtotime($date));
@@ -2828,14 +2861,14 @@ function add_order_item_column_content( $column ) {
 			echo "</div>";
 		}
 		else if ($phone == "" ) { 
-			echo "<p><input type='text' class='setPhoneInput' name='setPhoneInput' rows='1' placeholder='(phone #)' title='Enter phone number with no dashes or other formatting'></p>"; $didphone = 0;
+			echo "<input type='text' class='setPhoneInput' name='setPhoneInput' rows='1' placeholder='(phone #)' title='Enter phone number with no dashes or other formatting'>"; $didphone = 0;
 		}
 		else { echo "<div class='orderPhone'>$phone</div>"; }
 		// check for valid phone number lengths
 		if (strlen($phone) == 10 || strlen($phone) == 12) { /* do nothing */ }
 		else { 
 			if ( $didphone ) {
-				echo "<p><input type='text' class='setPhoneInput' name='setPhoneInput' rows='1' placeholder='(phone #)' title='Enter phone number with no dashes or other formatting'></p>"; } }
+				echo "<input type='text' class='setPhoneInput' name='setPhoneInput' rows='1' placeholder='(phone #)' title='Enter phone number with no dashes or other formatting'>"; } }
 		// additional emails
 		if ($add_emails != "")
 		{
@@ -2846,10 +2879,9 @@ function add_order_item_column_content( $column ) {
 			{ echo "<a href=\"mailto:$add_emails?subject=ccrind.com Order #$subj&body=Order Items: $list\" rel=\"noopener noreferrer\" target=\"_blank\">$add_emails</a>"; }
 		}
 		echo "<p style='color: #ffffff;'><br>More Emails &nbsp; <i class='fa-solid fa-square-envelope fa-2xl'></i></p>";
-		echo "<p><input type='text' class='addEmailInput' name='addEmailInput' rows='1' placeholder='(email, email, etc)' title='Enter additional emails in the format of the placeholder text, enter \"clear\" to clear all additional emails'></p>";
+		echo "<input type='text' class='addEmailInput' name='addEmailInput' rows='1' placeholder='(email, email, etc)' title='Enter additional emails in the format of the placeholder text, enter \"clear\" to clear all additional emails'>";
 		// payment link
 		if ($paylink != "") { echo "<br><a href=\"$paylink\" rel=\"noopener noreferrer\" target=\"_blank\">Customer payment page &#8594;</a>"; }
-		echo "</div>";
 		$dne = get_post_meta( $orderid, '_dnemail', true );
 		if ($dne) {
 			echo "<br><div class='dnemail_checkdiv' style='margin-top: 3px; margin-bottom: 3px; line-height: 0.8; font-size: 12px;'><input type='checkbox' id='dnemailcheck$orderid' name='dnemailcheck' class='dnemailcheck' value='1' checked><label for='dnemailcheck$orderid' class='dnemailcheckl' checked> Do NOT Email</label></div>";
@@ -2864,7 +2896,7 @@ function add_order_item_column_content( $column ) {
 			$paymethod = $order->get_payment_method();
 			if ($paymethod == "Other") { $tid = $order->get_transaction_id(); $paymethod = $tid; }
 			else if ($paymethod == "quickbookspay") { $paymethod = "Credit Card"; }
-			else if ($paymethod == "paypal" || $paymethod === 'angelleye_ppcp') { $paymethod = "PayPal"; }
+			else if ($paymethod == "paypal" || $paymethod === 'angelleye_ppcp' || $paymethod == "ppcp-gateway" || $paymethod == "ppcp") { $paymethod = "PayPal"; }
 			else if ($paymethod == "stripe") { $paymethod = "Credit Card"; }
 			else if ($paymethod == "cod") { $paymethod = ""; }
 			if ($paymethod != ""  ) {
@@ -2895,17 +2927,12 @@ function add_order_item_column_content( $column ) {
 				case "12": $month_trans = "12-December"; break;
 			}
 			echo "<a href='https://ccrind.com/log/LV/library/order-logs/Y$year/$month_trans.html' rel=\"noopener noreferrer\" target=\"_blank\"><p>QBO Total/# $month:</p></a>";
-			echo "<div class='inputQBOtotalBEdiv' line-height: 0.8;'>";
-			if ($qbo_total != "") { echo "<p><input type='text' class='inputQBOtotal' name='inputQBOtotal' rows='1' placeholder='$qbo_total' title='Enter the total for the QBO sales here.'></p>"; }
-			else { echo "<p><input type='text' class='inputQBOtotal' name='inputQBOtotal' rows='1' placeholder='(QBO TOTAL)' title='Enter the total for the QBO sales here.'></p>"; }
-			echo "</div>";
-			echo "<div class='inputQBOcountBEdiv' line-height: 0.8;'>";
+			if ($qbo_total != "") { echo "<input type='text' class='inputQBOtotal' name='inputQBOtotal' rows='1' placeholder='$qbo_total' title='Enter the total for the QBO sales here.'>"; }
+			else { echo "<input type='text' class='inputQBOtotal' name='inputQBOtotal' rows='1' placeholder='(QBO TOTAL)' title='Enter the total for the QBO sales here.'>"; }
 			if ($qbo_count != "") { echo "<input type='text' class='inputQBOcount' name='inputQBOcount' rows='1' placeholder='$qbo_count' title='Enter the total completed sales for the QBO here.'>"; }
 			else { echo "<input type='text' class='inputQBOcount' name='inputQBOcount' rows='1' placeholder='(QBO Count)' title='Enter the total completed sales for the QBO here.'>";}
-			echo "</div>";
 			if ($qbo_shipprofit != "") { echo "<input type='text' class='inputQBOsp' name='inputQBOsp' rows='1' placeholder='$qbo_shipprofit' title='Enter the total ship profit for the QBO here.'>"; }
 			else { echo "<input type='text' class='inputQBOsp' name='inputQBOsp' rows='1' placeholder='(QBO Ship Profit)' title='Enter the total ship profit for the QBO here.'>";}
-			echo "</div>";
 			//echo "<button class='btn order_log_link' onclick=\"window.open('https://ccrind.com/log/?dir=library%2Forder-logs%2FY2022','_blank');\" type='button' alt='Open Order Year Log Dir'></button>";
 		}
     }
@@ -2957,14 +2984,14 @@ function add_order_item_column_content( $column ) {
    				</select><br><br>";
 		
 		// if ebay order
-		$ebayID = get_post_meta( $order->id, '_ebayID', true );
+		$ebayID = get_post_meta( $orderid, '_ebayID', true );
 		if( $ebayID != "" )
 		{
 			// admin fields only
 			if( current_user_can('administrator') )
 			{
 				// show saved status
-				$saved = get_post_meta( $order->id, '_saved_status', true );
+				$saved = get_post_meta( $orderid, '_saved_status', true );
 				echo "<div style='color:#ffffff; line-height: 1.2; text-align: center;'>Saved Status:<br><text style='color: ";
 				if ($saved == "pending") { echo "#368bbc;'>$saved</div></div><br>"; }
 				else if ($saved == "processing") { echo "#c6e1c6;'>$saved</text></div><br>"; }
@@ -2978,7 +3005,7 @@ function add_order_item_column_content( $column ) {
     if ( 'order_item' === $column ) 
 	{
         $items = $order->get_items();
-		$cost = 0;
+		$cost = $cost1 = $clcost = $fbcost = $lsncost = 0;
 		$count = 0;
 		$allsku = "";
 		echo "<div class='item_list' style='height: 300px; overflow: auto;'>";
@@ -2994,11 +3021,15 @@ function add_order_item_column_content( $column ) {
 			$qty = $item->get_quantity();
 			if ($product != "") { $sku = $product->get_sku(); $allsku = $allsku . $sku . "+" ; $count = $count + 1; }
 			$loc = get_post_meta( $id, '_warehouse_loc', true );
-			$cost1 = get_post_meta( $id, '_cost', true );
+			if ( get_post_meta( $id, '_cost', true ) != "" ) {
+				$cost1 = (int) get_post_meta( $id, '_cost', true ); } 
 			$cost = $cost + ($cost1 * $qty);
-			$clcost = get_post_meta( $id, '_cl_cost', true );
-			$fbcost = get_post_meta( $id, '_fbmp_cost', true );
-			$lsncost = $lsnc = get_post_meta( $id, '_lsn_cost', true );
+			if ( get_post_meta( $id, '_cl_cost', true ) != "" ) {
+				$clcost = (int) get_post_meta( $id, '_cl_cost', true ); }
+			if ( get_post_meta( $id, '_fbmp_cost', true ) != "" ) {
+				$fbcost = (int) get_post_meta( $id, '_fbmp_cost', true ); }
+			if ( get_post_meta( $id, '_lsn_cost', true ) != "" ) {
+				$lsncost = $lsnc = (int) get_post_meta( $id, '_lsn_cost', true ); }
 			$cost = $cost + $clcost + $fbcost + $lsncost;
 			echo "<div style='line-height: 1.2;'>";
 			echo "<a class='order_item_link' href='$namelink' rel='noopener noreferrer' target='_blank'><strong>$name</strong></a>";
@@ -3020,12 +3051,14 @@ function add_order_item_column_content( $column ) {
 				if ($i != $total) echo ', ';
 			}
 			echo "<br>";*/
-			$primary_cat_id = get_post_meta($product->id,'_yoast_wpseo_primary_product_cat',true);
+			$primary_cat_id = get_post_meta($id,'_yoast_wpseo_primary_product_cat',true);
+			$category_link = $prodcatname = "";
 			if($primary_cat_id)
 			{
 				$product_cat = get_term($primary_cat_id, 'product_cat');
 				if(isset($product_cat->name))
 				$category_link = get_category_link($primary_cat_id);
+				$prodcatname = $product_cat->name;
 			}
 			else
 			{
@@ -3040,7 +3073,8 @@ function add_order_item_column_content( $column ) {
 					if ($i != $total) echo ', ';
 				}
 			}
-			echo "<a href = \"$category_link )\" id=\"catName$orderid\" class=\"catName\">$product_cat->name</a>";
+			if ($category_link != "" && $prodcatname != ""){
+				echo "<a href = \"$category_link\" id=\"catName$orderid\" class=\"catName\">$prodcatname</a>"; }
 			echo "<br>";
 			echo "</div>";
 			echo "<br>";
@@ -3052,11 +3086,15 @@ function add_order_item_column_content( $column ) {
 		// copy category button
 		echo "<button class='btn catbutton' type='button' alt='Copy Category' data-clipboard-target='#catName$orderid'></button>";
 		// copy bill name button
-		echo "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<button class='btn billnamebutton' type='button' alt='Copy Billing Name' data-clipboard-target='#billname$orderid'></button>";
-		// copy ship name button
-		echo "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<button class='btn shipnamebutton' type='button' alt='Copy Shipping Name' data-clipboard-target='#shipname$orderid'></button>";
+		echo "&nbsp;&nbsp;&nbsp;<button class='btn billnamebutton' type='button' alt='Copy Billing Name' data-clipboard-target='#billname$orderid'></button>";
 		// copy all skus of the order button
-		echo "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<button class='btn copyallskubutton' type='button' alt='Copy All SKUs of Order' data-clipboard-target='#order_allsku$orderid'></button>";
+		echo "&nbsp;&nbsp;&nbsp;<button class='btn copyallskubutton' type='button' alt='Copy All SKUs of Order' data-clipboard-target='#order_allsku$orderid'></button>";
+		// copy ship name button
+		echo "<br><button class='btn shipnamebutton' type='button' alt='Copy Shipping Name' data-clipboard-target='#shipname$orderid'></button>";
+		// copy ship address 1 button
+		echo "&nbsp;&nbsp;&nbsp;<button class='btn shipaddonebutton' type='button' alt='Copy Shipping Add.St.' data-clipboard-target='#shipaddone$orderid'></button>";
+		// copy ship zip code button
+		echo "&nbsp;&nbsp;&nbsp;<button class='btn shipzipbutton' type='button' alt='Copy Shipping Zip' data-clipboard-target='#shipzip$orderid'></button>";
     }
 	
 	if ( 'shipping_address' === $column ) 
@@ -3144,8 +3182,8 @@ function add_order_item_column_content( $column ) {
 	{
 		// display billing address
 		$saved_bill = get_post_meta( $orderid, '_saved_billing', true );
-		$test = $order->billing_address_1;
-		if (!empty($saved_bill) && empty($test)) {
+		$billadd1 = $order->get_billing_address_1();
+		if (!empty($saved_bill) && empty($billadd1)) {
 			$starr = explode(" ", $saved_bill["address_1"]);
 			$add = "";
 			if ($starr != "") {
@@ -3164,16 +3202,18 @@ function add_order_item_column_content( $column ) {
 			echo "</div>"; print_billvia( $order );
 		}
 		else {
-			$add = "$order->billing_address_1+$order->billing_city+$order->billing_state+$order->billing_postcode+US&z=16";
+			$billcity = $order->get_billing_city(); $billstate = $order->get_billing_state(); $billz = $order->get_billing_postcode(); $billcountry = $order->get_billing_country();
+			$add = $billadd1 . $billcity . $billstate . $billz . "+US&z=16";
 			echo "<div class='_saved_billing' style='line-height: 1.2;'>";
 			echo "<p style='color: #ffffff;'>Billing</p>";
 			echo "<div style='color: #bbc8d4;'>";
-			if ($order->billing_first_name) { echo "<span class='billname' id='billname$orderid'>" . $order->billing_first_name . " " . $order->billing_last_name . "</span>"; }
-			if ( ($order->billing_first_name && $order->billing_company) || ($order->billing_first_name && $order->billing_address_1) ) { echo ", "; }
-			if ($order->billing_company) { echo $order->billing_company; }
-			if ($order->billing_company && $order->billing_address_1) { echo ", "; }
-			if ($order->billing_address_2) { echo $order->billing_address_1 . ", " . $order->billing_address_2 . ", " . $order->billing_city . ", " . $order->billing_state . " " . $order->billing_postcode . " " . $order->billing_country; }
-			else if ($order->billing_address_1) { echo $order->billing_address_1 . ", " . $order->billing_city . ", " . $order->billing_state . " " . $order->billing_postcode . " " . $order->billing_country; }
+			$billfn = $order->get_billing_first_name(); $billln = $order->get_billing_last_name(); $billcom = $order->get_billing_company(); $billadd2 = $order->get_billing_address_2();
+			if ($billfn) { echo "<span class='billname' id='billname$orderid'>" . $billfn . " " . $billln . "</span>"; }
+			if ( ($billfn && $billcom) || ($billfn && $billadd1) ) { echo ", "; }
+			if ($billcom) { echo $billcom; }
+			if ($billcom && $billadd1) { echo ", "; }
+			if ($billadd2) { echo $billadd1 . ", " . $billadd2 . ", " . $billcity . ", " . $billstate . " " . $billz . " " . $billcountry; }
+			else if ($billadd1) { echo $billadd1. ", " . $billcity . ", " . $billstate . " " . $billz . " " . $billcountry; }
 			echo "</div></div>"; print_billvia( $order );
 		}
 		/*******************************************************************/
@@ -3205,7 +3245,7 @@ function add_order_item_column_content( $column ) {
 		$quoteprice = get_post_meta( $orderid, 'shipq_price', true );
 		if ($quoteprice != "") {
 			echo "<div style='line-height: 1.2; color: #ffffff;'>Ship Quote: $$quoteprice</div>"; }
-		if ($addtype || $unloadtype || $delivery || $shiptype || $foundBy || $quoteprice ) { echo "<br>"; }
+		if ($addtype || $unloadtype || $shiptype || $foundBy || $quoteprice ) { echo "<br>"; }
 		/*******************************************************************/
 		// if there is no shipping address to display, show the saved shipping address instead
 		$saved_ship = get_post_meta( $orderid, '_saved_shipping', true );
@@ -3225,21 +3265,23 @@ function add_order_item_column_content( $column ) {
 			if ( ($saved_ship["first_name"] && $saved_ship["company"]) || ($saved_ship["first_name"] && $saved_ship["address_1"]) ) { echo ", "; }
 			if ($saved_ship["company"]) { echo $saved_ship["company"]; }
 			if ($saved_ship["company"] && $saved_ship["address_1"]) { echo ", "; }
-			if ($saved_ship["address_2"]) { echo $saved_ship["address_1"] . ", " . $saved_ship["address_2"] . ", " . $saved_ship["city"] . ", " . $saved_ship["state"] . " " . $saved_ship["postcode"] . " " . $saved_ship["country"]; }
-			else if ($saved_ship["address_1"]) { echo $saved_ship["address_1"] . ", " . $saved_ship["city"] . ", " . $saved_ship["state"] . " " . $saved_ship["postcode"] . " " . $saved_ship["country"]; }
+			if ($saved_ship["address_2"]) { echo "<span class='shipaddone' id='shipaddone$orderid'>" . $saved_ship["address_1"] . "</span>, " . $saved_ship["address_2"] . ", " . $saved_ship["city"] . ", " . $saved_ship["state"] . " <span class='shipzip' id='shipzip$orderid'>" . $saved_ship["postcode"] . "</span> " . $saved_ship["country"]; }
+			else if ($saved_ship["address_1"]) { echo "<span class='shipaddone' id='shipaddone$orderid'>" . $saved_ship["address_1"] . "</span>, " . $saved_ship["city"] . ", " . $saved_ship["state"] . " <span class='shipzip' id='shipzip$orderid'>" . $saved_ship["postcode"] . "</span> " . $saved_ship["country"]; }
 			echo "</a></div>"; print_shipvia( $order );
 		}
 		else {
-			$add = "$order->shipping_address_1+$order->shipping_city+$order->shipping_state+$order->shipping_postcode+US&z=16";
+			$shipcity = $order->get_shipping_city(); $shipstate = $order->get_shipping_state(); $shipz = $order->get_shipping_postcode(); $shipcountry = $order->get_shipping_country();
+			$add = $ship_add . $shipcity . $shipstate . $shipz . "+US&z=16";
 			echo "<div class='_saved_shipping' style='line-height: 1.2;'>";
 			echo "<p style='color: #ffffff;'>Shipping</p>
 				<a target='_blank' href='https://maps.google.com/maps?&q=$add'<div>";
-			if ($order->shipping_first_name) { echo "<span class='billname' id='shipname$orderid'>" . $order->shipping_first_name . " " . $order->shipping_last_name . "</span>"; }
-			if ( ($order->shipping_first_name && $order->shipping_company) || ($order->shipping_first_name && $order->shipping_address_1) ) { echo ", "; }
-			if ($order->shipping_company) { echo $order->shipping_company; }
-			if ($order->shipping_company && $order->shipping_address_1) { echo ", "; }
-			if ($order->shipping_address_2) { echo $order->shipping_address_1 . ", " . $order->shipping_address_2 . ", " . $order->shipping_city . ", " . $order->shipping_state . " " . $order->shipping_postcode . " " . $order->shipping_country; }
-			else if ($order->shipping_address_1) { echo $order->shipping_address_1 . ", " . $order->shipping_city . ", " . $order->shipping_state . " " . $order->shipping_postcode . " " . $order->shipping_country; }
+			$shipfn = $order->get_shipping_first_name(); $shipln = $order->get_shipping_last_name(); $shipcom = $order->get_shipping_company(); $shipadd2 = $order->get_shipping_address_2();
+			if ($shipfn) { echo "<span class='billname' id='shipname$orderid'>" . $shipfn . " " . $shipln . "</span>"; }
+			if ( ($shipfn && $shipcom) || ($shipfn && $ship_add) ) { echo ", "; }
+			if ($shipcom) { echo $shipcom; }
+			if ($shipcom && $ship_add) { echo ", "; }
+			if ($shipadd2) { echo "<span class='shipaddone' id='shipaddone$orderid'>" . $ship_add . "</span>, " . $shipadd2 . ", " . $shipcity . ", " . $shipstate . " <span class='shipzip' id='shipzip$orderid'>" . $shipz . "</span> " . $shipcountry; }
+			else if ($ship_add) { echo "<span class='shipaddone' id='shipaddone$orderid'>" . $ship_add . "</span>, " . $shipcity . ", " . $shipstate . " <span class='shipzip' id='shipzip$orderid'>" . $shipz . "</span> " . $shipcountry; }
 			echo "</a></div>"; print_shipvia( $order );
 		}
 	}
@@ -3261,9 +3303,9 @@ function add_order_item_column_content( $column ) {
 		echo "<p><input type='text' class='addressinput2' name='addressinput2' rows='1' placeholder='(city), (state) (zip)' title='Enter city state address info in the format of the placeholder text'></p></div>";
 		// check boxes for shipping only
 		echo "<div class='billonlycheckdiv' style='margin-top: 3px; margin-bottom: 3px; line-height: 1.2;'><input type='checkbox' id='billaddonly$orderid' name='billaddonly' class='billaddonly' value='1'>
-  			  	<label for='billaddonly$orderid' class='billaddonlyl'> Bill Adr</label></div>";
+  			  	<label for='billaddonly$orderid' class='billaddonlyl'> Bill</label></div>";
 		echo "<div class='shiponlycheckdiv' style='margin-top: 3px; margin-bottom: 3px; line-height: 1.2;'><input type='checkbox' id='shipaddonly$orderid' name='shipaddonly' class='shipaddonly' value='1'>
-  			  	<label for='shipaddonly$orderid' class='shipaddonlyl'> Ship Adr</label></div>";
+  			  	<label for='shipaddonly$orderid' class='shipaddonlyl'> Ship</label></div>";
 		echo "</div>"; // closing the first div of this block
 		echo "<div class='add_ship_info' line-height: 1;'>";
 		echo "<p style='color: #ffffff; font-size:11px;'>Add. Ship Info Inputs &nbsp; <i class='fa-solid fa-dolly fa-xl'></i></p>";
@@ -3381,6 +3423,12 @@ function add_order_item_column_content( $column ) {
 		echo "<div class='CCR_ship_costBEdiv' line-height: 1.2;'>";
 		echo "<p><input type='text' id='_CCR_ship_costBE' class='_CCR_ship_costBE' name='_CCR_ship_costBE' rows='1' placeholder='$$CCRprice' title='Enter the cost of shipping quote to CCR here.'></p>";
 		echo "</div>";
+		echo "<div class='pallet_feeBEdiv' line-height: 1.2;'>";
+		echo "<p style='color: #ffffff; font-size: 10px;'>Pallet Fee</p>";
+		echo "</div>";
+		echo "<div class='CCR_ship_costBEdiv' line-height: 1.2;'>";
+		echo "<p style='color: #ffffff; font-size: 10px;'>CCR Quoted $</p>";
+		echo "</div>";
 		
 	}
 	if ( 'order_inputtrack' === $column ) 
@@ -3391,6 +3439,9 @@ function add_order_item_column_content( $column ) {
 		if ($ourshipcost != "") { echo "<div class='ship_cost_input' style='line-height: 1.2; color: #f7dca5'>Ship Cost: $$ourshipcost</div>"; }
 		// if order has tracking number display it
 		$trackNum = get_post_meta($orderid, '_bst_tracking_number', true);
+		$fqOrderN = get_post_meta($orderid, 'shiporder_ID', true);
+		$fqShipTrackN = get_post_meta($orderid, 'shipordertrack_ID', true);
+		
 		if ($trackNum != "")
 		{
 			$trackCarrier = get_post_meta($orderid, '_bst_tracking_provider', true);
@@ -3412,8 +3463,8 @@ function add_order_item_column_content( $column ) {
 			else if ( $trackCarrier == "USPS Flat Rate" ) { $trackNum = "<a target='_blank' href='https://tools.usps.com/go/TrackConfirmAction?tRef=fullpage&tLc=2&text28777=&tLabels=$trackNum%2C&tABt=false'>$trackNum</a>"; }
 			
 			// display tracking info ahead of input fields
-			echo "<div class='track_info_input_filled' style='line-height: 1.2;'><p>Carrier: $trackCarrier</p>";
-			echo "<p>#  $trackNum</p></div>";
+			echo "<div class='track_info_input_filled' style='line-height: 1.2; font-size: 11px;'>Carrier: $trackCarrier ";
+			echo "#  $trackNum</div>";
 			//echo "<br>";
 		}
 		
@@ -3439,7 +3490,7 @@ function add_order_item_column_content( $column ) {
 					<option value='FedEx'>FedEx</option>
         			<option value='UPS Ground'>UPS Ground</option>
 					<option value='USPS Flat Rate'>USPS Flat Rate</option>
-					<option value='Local Pickup'>Local Pickup</option>
+					<option value='Local Pickup'>Local Pickup / 3rd Party</option>
    			  </select>";
 		echo "<p><input type='text' class='trackNumInput' name='trackNumInput' rows='1' placeholder='(Tracking#)' title='Enter tracking number here'></p>";
 		//echo "<textarea id='carrierInput' class='carrierInput' name='carrierInput' rows='2' placeholder='(Carrier: YRC, UPS, USPS, LocalPickup)'></textarea>";
@@ -3449,6 +3500,22 @@ function add_order_item_column_content( $column ) {
 		echo "<p><input type='text' class='shipDateInput' name='shipDateInput' rows='1' placeholder='(****-**-** Y-m-d)' title='Enter ship date here: year, month, day (Optional)'></p>";
 		echo "<p><input type='text' class='feedbackInput' name='feedbackInput' rows='1' placeholder='(eBay Feedback Msg)' title='Enter feedback message you wish to give customer here (Optional)'></p>";
 		echo "</div>";
+
+		echo "<div class='track_info_input' style='line-height: 1.2;'>";
+		if ($fqOrderN || $fqShipTrackN) { echo "<br><text style='color: #ffffff; font-size: 12px;'>freightquote.com Info:</text><br>"; }
+		if ($fqOrderN != "") { 
+			echo "<a href='https://www.freightquote.com/book/#/orders/$fqOrderN' target='_blank'>FQ Order Link</a><br>";
+			echo "Order Number: <a href='" . admin_url("admin.php?page=ccr-admin-menu%2Ffreightorder-admin-menu-ccr&orderid=$orderid&orderNumber=$fqOrderN") . "' target='_blank'>$fqOrderN</a><br>"; }
+		if ($fqShipTrackN != "") { echo "<span style='font-size: 11px;'>Tracking Number: $fqShipTrackN</span><br>"; }
+		echo "</div>";
+		
+		/*
+		 https://ccrind.com/wp-admin/admin.php?page=ccr-admin-menu%2Ffreightorder-admin-menu-ccr&orderid=$orderid&orderNumber=$num
+			$parse = "https://ccrind.com/wp-admin/admin.php?page=ccr-admin-menu%2Fordernotes-admin-menu-ccr&orderid=$orderid";
+			echo "<br><button class='btn order_search_link' onclick=\"window.open('$parse','_blank');\" type='button' alt='Open Notes Page'></button>";
+			echo "<br><a href='" . admin_url("admin.php?page=ccr-admin-menu/ordernotes-admin-menu-ccr&orderid=$orderid") . "' target='_blank'>Open Notes Page</a>";
+			*/
+		
 	}
 	if ( 'order_itemstats' === $column ) 
 	{
@@ -3458,13 +3525,14 @@ function add_order_item_column_content( $column ) {
 		{
 			$product = wc_get_product($item->get_product_id());
 			if ($product != ""){
+				
 				$length = $product->get_length();
         		$width = $product->get_width();
         		$height = $product->get_height();
 				$weight = $product->get_weight();
 				$sku = $product->get_sku();
 				// l, w, h, weight
-				echo "<div style='line-height: 1.2; color: #ffffff;'>";
+				echo "<div style='line-height: 1.2; color: #ffffff; text-align: center;'>";
 				if ($sku != "") { echo "<a class='order_item_link' href='https://ccrind.com/wp-admin/edit.php?s=%3D$sku&post_status=all&post_type=product&action=-1&soldby_filter&product_visibility=0&product_type&stock_status&paged=1&postidfirst=106269&action2=-1' rel='noopener noreferrer' target='_blank'><strong>$sku</strong></a><br>"; } else { echo "(SKU)"; }
 				if ($length != "") { echo "$length\" L<br>"; } else { echo "(L)<br>"; }
 				if ($width != "") { echo "$width\" W<br>"; } else { echo "(W)<br>"; }
@@ -3474,6 +3542,10 @@ function add_order_item_column_content( $column ) {
 				// pallet fee
 				$cratefee = get_post_meta($item->get_product_id(), '_cratefee', true);
 				if ($cratefee > 0) { echo "<text class='cratefee' id='cratefee'>Pallet Fee:<br>$$cratefee<br></text>"; }
+				
+				$ship = get_post_meta( $item->get_product_id(), '_customship', true );
+				if ($ship == 2) { 
+				echo "<p style='color: #c40403; background-color: #ffffff; border-radius: 5px; font-weight: bold;'>Local Pickup Only</p>"; }
 				echo "</div>";
 			}
 			echo "<br>";
@@ -3496,15 +3568,16 @@ function add_order_item_column_content( $column ) {
 			$fee_total = 0;
 			$ccfee = 0;
 			$ebaytax = 0;
+			$palletfee = 0;
 			// Iterating through order fee items ONLY to find CC Fee
 			foreach( $order->get_items('fee') as $item_id => $item_fee )
 			{
 				$fee_name = $item_fee->get_name();
-				if (strpos( $fee_name, "(eBay") ) { $ebaytax = $ebaytax + $item_fee->get_total(); }
+				if (strpos( $fee_name, "(eBay") ) { $ebaytax = $ebaytax + $item_fee->get_total(); } 
 				$fee_name = strtolower($fee_name);
-				if (strpos( $fee_name, "usage fee") ) { $ccfee = $ccfee + $item_fee->get_total(); }
-				if (strpos( $fee_name, "allet fee") ) { $palletfee = $palletfee + $item_fee->get_total(); }
-				if (strpos( $fee_name, "rating") || strpos( $fee_name, "rate") ) { $palletfee = $palletfee + $item_fee->get_total(); }
+				if (strpos( $fee_name, "usage fee") ) { $ccfee = $ccfee + $item_fee->get_total(); } 
+				if (strpos( $fee_name, "allet fee") ) { $palletfee = $palletfee + $item_fee->get_total(); } 
+				if (strpos( $fee_name, "rating") || strpos( $fee_name, "rate") ) { $palletfee = $palletfee + $item_fee->get_total(); } 
 			}
 			// itereate again to get total fees with CC
 			foreach( $order->get_items('fee') as $item_id => $item_fee )
@@ -3575,7 +3648,7 @@ function add_order_item_column_content( $column ) {
 			if ($ebay_tax != 0) { $label = " eBay Collected Tax"; $fee = $ebay_tax; fee_trans( $status, $fee, $label ); }
 		}
 		
-		if ($method === 'paypal')
+		if ($method === 'paypal' || $paymethod == "ppcp")
 		{
 			$fee_total = 0;
 			$ccfee = 0;
@@ -3710,8 +3783,19 @@ CCR IND LLC";
 		echo "<span><input type='text' id='noteinput' class='noteinput' name='noteinput' rows='1' placeholder='Add note to order...'>
 			<label for='customer_note_check$orderid' class='customer_note_checkl'>CN</label>
 			<input type='checkbox' id='customer_note_check$orderid' name='customer_note_check' class='customer_note_check' title='Make Note Customer Note' value='1' onClick='ckChange(this)'></span>";
-        $cusnote = $order->get_customer_note();
-		if ($cusnote != "") { echo "<div class='customer_order_notes_area' style='line-height: 1.2; color: #e7dcaa; font-size: 18px;'>$cusnote<br><br></div>"; }
+		$ccrnote = get_post_meta( $orderid, '_ccr_customer_note', true );
+        //$cusnote = $order->get_customer_note();
+		
+		if ($ccrnote != "") { 
+			order_notes_filterC( $ccrnote, 1 );
+			//echo "<div class='customer_order_notes_area' style='line-height: 1.2; color: #ffffff; background-color: #5c5c5c; border-radius: 5px; font-size: 14px;'>$ccrnote<br><br></div>"; 
+			}
+		$cusnote = $order->get_customer_note();
+		if ($cusnote != "") { 
+			$cusnote = "CUSTOMER NOTE: " . $cusnote;
+			order_notes_filterC( $cusnote, 2 );
+			//echo "<div class='customer_order_notes_area' style='line-height: 1.2; color: #ff9f9e; background-color: #5c5c5c; border-radius: 5px; font-size: 14px;'>$cusnote<br><br></div>"; 
+			}
 		
 		// insert first and second order private note
 		$note_content = "";
@@ -3721,7 +3805,8 @@ CCR IND LLC";
 		$count = count($order_notes);
 		$i = 0;
 
-		echo "<div class='order_notes_area' style='line-height: 1.2; height: 300px; overflow: auto;'>";
+		echo "<div class='order_notes_area' style='line-height: 1.2; height: 300px; overflow: auto; margin-top: 10px;'>";
+		$stockup = $stockdown = 1;
 		foreach( array_reverse($order_notes) as $note)
 		{
 			$note_content = $note['note_content'];
@@ -3732,25 +3817,40 @@ CCR IND LLC";
 			$remainder = $count %2;
 			if ($remainder == 0) { /* $count is even */ $color = "#cacaca"; }
 			else { /* $count is odd */ $color = "#a2a2a2"; }
-			order_notes_filter( $note_content, $date, $user, $color );
+			order_notes_filter( $note_content, $date, $user, $color, $stockup, $stockdown, 3 );
 			$count = $count - 1;
 		}
 		echo "</div>";
+		// bookmark parse
+		/*if ( current_user_can('administrator') ) {
+			session_start();
+			$_SESSION['orderid'] = $orderid;
+			echo "Order ID: $orderid";
+			https://ccrind.com/wp-admin/admin.php?page=ccr-admin-menu%2Ffreightorder-admin-menu-ccr&orderid=$orderid&orderNumber=$num
+			$parse = "https://ccrind.com/wp-admin/admin.php?page=ccr-admin-menu%2Fordernotes-admin-menu-ccr&orderid=$orderid";
+			echo "<br><button class='btn order_search_link' onclick=\"window.open('$parse','_blank');\" type='button' alt='Open Notes Page'></button>";
+			echo "<br><a href='" . admin_url("admin.php?page=ccr-admin-menu/ordernotes-admin-menu-ccr&orderid=$orderid") . "' target='_blank'>Open Notes Page</a>";
+		}*/
 	}
 	if ( 'wc_actions' === $column ) 
 	{
 		if ($status == "pending" || $status == "on-hold" ) {
 			echo "<div class='order_dates_info' style='line-height: 1.2; overflow: auto; margin-bottom: 50px; text-align: center;'>";
-			$sentinvdate = get_post_meta( $orderid, '_sent_invoice', true ); $sentinvdateTrim = date_format(date_create_from_format('y-m-d', $sentinvdate), 'm-d-y');
-			$sentfollowupdate = get_post_meta( $orderid, '_sent_followup', true ); $sentfollowupdateTrim = date_format(date_create_from_format('y-m-d', $sentfollowupdate), 'm-d-y');
-			$sentwireinvdate= get_post_meta( $orderid, '_sent_wireinv', true ); $sentwireinvdateTrim = date_format(date_create_from_format('y-m-d', $sentwireinvdate), 'm-d-y');
-			$sentwireinfodate = get_post_meta( $orderid, '_sent_wireinfo', true ); $sentwireinfodateTrim = date_format(date_create_from_format('y-m-d', $sentwireinfodate), 'm-d-y');
-			$sentebaymsgdate = get_post_meta( $orderid, '_sent_ebaymsg', true ); $sentebaymsgdateTrim = date_format(date_create_from_format('y-m-d', $sentebaymsgdate), 'm-d-y');
+			$sentinvdate = get_post_meta( $orderid, '_sent_invoice', true ); 
+			if ($sentinvdate != "") { $tempdate = date_create_from_format('y-m-d', $sentinvdate); $sentinvdateTrim = date_format($tempdate, 'm-d-y'); }
+			$sentfollowupdate = get_post_meta( $orderid, '_sent_followup', true ); 
+			if ($sentfollowupdate != "") { $tempdate = date_create_from_format('y-m-d', $sentfollowupdate); $sentfollowupdateTrim = date_format($tempdate, 'm-d-y'); }
+			$sentwireinvdate= get_post_meta( $orderid, '_sent_wireinv', true ); 
+			if ($sentwireinvdate != "") { $tempdate = date_create_from_format('y-m-d', $sentwireinvdate); $sentwireinvdateTrim = date_format($tempdate, 'm-d-y'); }
+			$sentwireinfodate = get_post_meta( $orderid, '_sent_wireinfo', true );
+			if ($sentwireinfodate != "") { $tempdate = date_create_from_format('y-m-d', $sentwireinfodate); $sentwireinfodateTrim = date_format($tempdate, 'm-d-y'); }
+			$sentebaymsgdate = get_post_meta( $orderid, '_sent_ebaymsg', true ); 
+			if ($sentebaymsgdate != "") { $tempdate = date_create_from_format('y-m-d', $sentebaymsgdate); $sentebaymsgdateTrim = date_format($tempdate, 'm-d-y'); }
 			$datenow = date("y-m-d");
 			/*if (strtotime($testdate) < strtotime('-2 days')) {
 				echo "<div class='date_alert'>Testing Invoice sent: $testdate<br>Follow Up Due</div>"; 
-			}*/
-			//else { echo "<div>Testing Invoice sent: $testdate</div>"; }*/
+			}
+			else { echo "<div>Testing Invoice sent: $testdate</div>"; }*/
 			if ($sentinvdate != "" && $sentfollowupdate == "") {
 				if ( strtotime($sentinvdate) < strtotime('-2 days') ) { echo "<div class='date_alert'>Invoice Sent: $sentinvdateTrim<br>FOLLOWUP DUE</div>"; }
 				else { echo "<div class='date_normal'>Invoice Sent: $sentinvdateTrim</div>"; }
@@ -3779,16 +3879,18 @@ CCR IND LLC";
 		$city = $order->get_shipping_city();
 		$state = $order->get_shipping_state();
 		$postcode = $order->get_shipping_postcode();
+		$shipAdd = "";
 		if ($fname == "")
 		{
 			$saved_ship = get_post_meta( $orderid, '_saved_shipping', true );
-			$fname = $saved_ship["first_name"]; $lname = $saved_ship["last_name"]; $bname = $saved_ship["company"]; $add = $saved_ship["address_1"]; $add2 = $saved_ship["address_2"];
-			$city = $saved_ship["city"]; $state = $saved_ship["state"]; $postcode = $saved_ship["postcode"];
-			if ($bname != "") { $shipAddpart1 = $fname . " " . $lname . "<br>" . $bname . "<br>"; }
-			else { $shipAddpart1 = $fname . " " . $lname . "<br>"; }
-			if ($add2 != "") { $shipAddpart2 = $add . "<br>" . $add2 . "<br>" . $city . ", " . $state . " " . $postcode; }
-			else { $shipAddpart2 = $add . "<br>" . $city . ", " . $state . " " . $postcode; }
-			$shipAdd = $shipAddpart1 . $shipAddpart2; $name = $fname . " " . $lname;
+			if ($saved_ship != "") {
+				$fname = $saved_ship["first_name"]; $lname = $saved_ship["last_name"]; $bname = $saved_ship["company"]; $add = $saved_ship["address_1"]; $add2 = $saved_ship["address_2"]; 
+				$city = $saved_ship["city"]; $state = $saved_ship["state"]; $postcode = $saved_ship["postcode"];
+				if ($bname != "") { $shipAddpart1 = $fname . " " . $lname . "<br>" . $bname . "<br>"; }
+				else { $shipAddpart1 = $fname . " " . $lname . "<br>"; }
+				if ($add2 != "") { $shipAddpart2 = $add . "<br>" . $add2 . "<br>" . $city . ", " . $state . " " . $postcode; }
+				else { $shipAddpart2 = $add . "<br>" . $city . ", " . $state . " " . $postcode; }
+				$shipAdd = $shipAddpart1 . $shipAddpart2; $name = $fname . " " . $lname; }
 		}
 		else 
 		{
@@ -3806,15 +3908,15 @@ The invoice will detail the costs of the order as well as provide a link for pay
 If you require a different shipping option or local pickup, we can adjust the invoice and resend.<br><br>
 Current Option, via $shiptype for: <br>
 $shipAdd<br><br>";
-		if ($addtype != "") { $msgaddt = "Address Type: $addtype <br>"; }
-		if ($unloadtype != "") { $msgunloadt = "Forklift / Freight Dock: $unloadtype <br><br>"; }
+		if ($addtype != "") { $msgaddt = "Address Type: $addtype <br>"; } else { $msgaddt = " "; }
+		if ($unloadtype != "") { $msgunloadt = "Forklift / Freight Dock: $unloadtype <br><br>"; } else { $msgunloadt = " "; }
 		$msgend = "If any of this information is incorrect or needs to be updated, please let us know. <br>
-If you are unable to find the email, you can also use the following link to view and pay for the order, click or copy and paste into your browser:<br>
+If you are unable to find the email, you can also use the following link to view and pay for the order, click or copy and paste into your browser:<br><br>
 $paylink";
 		$msg = $msgstart . $msgaddt . $msgunloadt . $msgend;
 		$followup = "$name,<br>
 &nbsp;&nbsp;&nbsp;&nbsp;We wanted to follow up with you on your potential purchase.  You should have received an email with a link to allow you to pay for your order.  If you are having problems or never received the email, please let us know how we can help.  If you have decided to cancel the order, please let us know.  If you have already spoken with one of our agents, please disregard this message. Thank you and have a great day.<br><br>
-If you are unable to find the email, you can also use the following link to view and pay for the order, click or copy and paste into your browser:<br>
+If you are unable to find the email, you can also use the following link to view and pay for the order, click or copy and paste into your browser:<br><br>
 $paylink";
 		}
 		if( $imageflag ){ // text area divs, if an ebay id was found, make ebay message divs show ebay helper buttons
@@ -3839,7 +3941,7 @@ $paylink";
 			if ($status == "processing")
 			{
 				echo "<div class='updateme'>UPDATE ORDER TO PREP</div><br><br>";
-				echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will mark order as \"On hold\".'></button></div>";
+				echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will mark order as \"On hold\".' id=\"postallorder\" onclick=\"document.getElementById('postallorder').disabled = true; document.getElementById('postallorder').style.opacity='0.5'; this.form.submit();\"></button></div>";
 				/*echo "<br>";
 				echo "<div style='text-align:center;'><input type='checkbox' id='cancelorder' name='cancelorder' class='cancelorderbox' value='1'><br>
 					<label for='cancelorder' class='cancelorderl'>Cancel</label></div>";*/
@@ -3880,7 +3982,7 @@ $paylink";
 		}
 		if ($method != "") {
 			if ($status == "on-hold") {
-				echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will Update based on Inputs'></button></div>";
+				echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will Update based on Inputs' id=\"postallorder\" onclick=\"document.getElementById('postallorder').disabled = true; document.getElementById('postallorder').style.opacity='0.5'; this.form.submit();\"></button></div>";
 			}
 		}
 		if ($method == "None" || $method == "CashOnPickup" || $method == "" ) {
@@ -3891,28 +3993,35 @@ $paylink";
 			if ($status == "pending") /* status is pending payment */ {
 				// check boxes for Cash or Check or Wire
 				update_checks($orderid);
-				if ($email == "jedidiah@ccrind.com" || $email == "sharon@ccrind.com") {
-					echo "<div style='margin-top: -3px; margin-bottom: 13px; line-height: 1.2; color: #000000;'>___________</div>";
+				if ($email == "jedidiah@ccrind.com" || $email == "sharon@ccrind.com" || $email == "sales@ccrind.com") {
+					echo "<div style='margin-top: -3px; margin-bottom: 13px; line-height: 1.2; color: #000000;'>________</div>";
+					echo "<input type='checkbox' id='addebaymsg$orderid' name='addebaymsg' class='addebaymsg' value='1'>
+  			  			<label for='addebaymsg$orderid' class='addebaymsgl'>MsgSent</label><br>"; }
+			} 
+			else if ($status == "on-hold") /* status is pending payment */ {
+				// check boxes for Cash or Check or Wire
+				if ($email == "jedidiah@ccrind.com" || $email == "sharon@ccrind.com" || $email == "sales@ccrind.com") {
+					echo "<div style='margin-top: -3px; margin-bottom: 13px; line-height: 1.2; color: #000000;'>________</div>";
 					echo "<input type='checkbox' id='addebaymsg$orderid' name='addebaymsg' class='addebaymsg' value='1'>
   			  			<label for='addebaymsg$orderid' class='addebaymsgl'>MsgSent</label><br>"; }
 			} 
 		}
 		
 		// add payment checkboxes for orders that have selected pay method but have not completed pay method
-		if ( ($method == "intuit_payments_credit_card" || $method == "quickbookspay" || $method == "paypal"|| $method === 'angelleye_ppcp' || $method == "stripe" || $method == "CreditCard" || $method == "CreditCard (PayPal)") && $tid == "" ) {
+		if ( ($method == "intuit_payments_credit_card" || $method == "quickbookspay" || $method == "paypal"|| $method == "ppcp-gateway" || $method == "ppcp" || $method === 'angelleye_ppcp' || $method == "stripe" || $method == "CreditCard" || $method == "CreditCard (PayPal)") && $tid == "" ) {
 			if ($tid == "") {
 				if ($status == "pending") /* status is pending payment */ {
 				update_checks($orderid);
-					if ($email == "jedidiah@ccrind.com" || $email == "sharon@ccrind.com") {
-						echo "<div style='margin-top: -3px; margin-bottom: 13px; line-height: 1.2; color: #000000;'>___________</div>";
+					if ($email == "jedidiah@ccrind.com" || $email == "sharon@ccrind.com" || $email == "sales@ccrind.com") {
+						echo "<div style='margin-top: -3px; margin-bottom: 13px; line-height: 1.2; color: #000000;'>________</div>";
 						echo "<input type='checkbox' id='addebaymsg' name='addebaymsg' class='addebaymsg' value='1'>
   			  				<label for='addebaymsg' class='addebaymsgl'>MsgSent</label><br>"; } 
 				}
 			}
 			else {
 				update_checks($orderid);
-				if ($email == "jedidiah@ccrind.com" || $email == "sharon@ccrind.com") {
-					echo "<div style='margin-top: -3px; margin-bottom: 13px; line-height: 1.2; color: #000000;'>___________</div>";
+				if ($email == "jedidiah@ccrind.com" || $email == "sharon@ccrind.com" || $email == "sales@ccrind.com") {
+					echo "<div style='margin-top: -3px; margin-bottom: 13px; line-height: 1.2; color: #000000;'>________</div>";
 					echo "<input type='checkbox' id='addebaymsg' name='addebaymsg' class='addebaymsg' value='1'>
   			  			<label for='addebaymsg' class='addebaymsgl'>MsgSent</label><br>"; }
 			}
@@ -3924,15 +4033,15 @@ $paylink";
 			// and payment method is credit card
 			if ( ($method == "intuit_payments_credit_card" || $method == "quickbookspay" || $method == "stripe") && $tid !== "" )
 			{
-				echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will leave the CC Fee, capture charge and mark order as \"Processing\".'></button></div>";
+				echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will leave the CC Fee, capture charge and mark order as \"Processing\".' id=\"postallorder\" onclick=\"document.getElementById('postallorder').disabled = true; document.getElementById('postallorder').style.opacity='0.5'; this.form.submit();\"></button></div>";
 				/*echo "<br>";
 				echo "<div style='text-align:center;'><input type='checkbox' id='cancelorder' name='cancelorder' class='cancelorderbox' value='1'><br>
 					<label for='cancelorder' class='cancelorderl'>Cancel</label></div>";*/
 			}
 			// and payment method is paypal
-			if ( ($method == "paypal" || $method === 'angelleye_ppcp') && $tid !== "")
+			if ( ($method == "paypal" || $method === 'angelleye_ppcp' || $method == "ppcp-gateway" || $method == "ppcp") && $tid !== "")
 			{
-				echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will remove the CC Fee and leave as \"On hold\", Click the Processing button (...) to the right capture charge and mark order as \"Processing\".'></button></div>";
+				echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will remove the CC Fee and leave as \"On hold\", Click the Processing button (...) to the right capture charge and mark order as \"Processing\".' id=\"postallorder\" onclick=\"document.getElementById('postallorder').disabled = true; document.getElementById('postallorder').style.opacity='0.5'; this.form.submit();\"></button></div>";
 				/*echo "<br>";
 				echo "<div style='text-align:center;'><input type='checkbox' id='cancelorder' name='cancelorder' class='cancelorderbox' value='1'><br>
 					<label for='cancelorder' class='cancelorderl'>Cancel</label></div>";*/
@@ -3943,9 +4052,9 @@ $paylink";
 		if ($status == "processing")
 		{
 			// and payment method is credit card or paypal
-			if ($method == "intuit_payments_credit_card" || $method == "quickbookspay" || $method == "paypal" || $method === 'angelleye_ppcp' || $method == "CreditCard" || $method == "CreditCard (PayPal)" || $method == "stripe")
+			if ($method == "intuit_payments_credit_card" || $method == "quickbookspay" || $method == "paypal" || $method == "ppcp-gateway" || $method == "ppcp" || $method === 'angelleye_ppcp' || $method == "CreditCard" || $method == "CreditCard (PayPal)" || $method == "stripe")
 			{
-				echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will mark the order as \"Completed\".'></button></div>";
+				echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will mark the order as \"Completed\".' id=\"postallorder\" onclick=\"document.getElementById('postallorder').disabled = true; document.getElementById('postallorder').style.opacity='0.5'; this.form.submit();\"></button></div>";
 				/*echo "<br>";
 				echo "<div style='text-align:center;'><input type='checkbox' id='cancelorder' name='cancelorder' class='cancelorderbox' value='1'><br>
 					<label for='cancelorder' class='cancelorderl'>Cancel</label></div>";*/
@@ -3954,20 +4063,20 @@ $paylink";
 			{
 				$tid = get_post_meta($orderid, '_transaction_id', true);
 				$tid = strtolower($tid);
-				if ( $tid == "cash" || $tid == "check" || $tid == "wire" || $tid == "sis" ) 
+				if ( $tid == "cash" || $tid == "check" || $tid == "wire" || $tid == "sis" || $tid == "ebay" ) 
 				{
-					echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will mark the order as \"Completed\".'></button></div>";
+					echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will mark the order as \"Completed\".' id=\"postallorder\" onclick=\"document.getElementById('postallorder').disabled = true; document.getElementById('postallorder').style.opacity='0.5'; this.form.submit();\"></button></div>";
 				}
 			}
 		}
 		// status change update order button
 		if ($status == "completed" || $status == "cancelled")
 		{
-			echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will change order status based on Status Selection.'></button></div>";
+			echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will change order status based on Status Selection.' id=\"postallorder\" onclick=\"document.getElementById('postallorder').disabled = true; document.getElementById('postallorder').style.opacity='0.5'; this.form.submit();\"></button></div>";
 		}
 		// add tax exempt check box for marking tax status
 		if ($status == "on-hold" || $status == "pending") {
-			echo "<div style='margin-top: -3px; margin-bottom: 13px; line-height: 1.2; color: #000000;'>___________</div>
+			echo "<div style='margin-top: -3px; margin-bottom: 13px; line-height: 1.2; color: #000000;'>________</div>
 				<div style='margin-top: 3px; margin-bottom: 3px; line-height: 1.2;'>
 				<label for='taxexempt$orderid'><input type='radio' id='taxexempt$orderid' name='taxradio' class='texemptradio' value='1'>
         		<span style='color: #cccccc !important;font-weight: bold;font-size: 12px;text-shadow: -1px 1px 0 #c40403,1px 1px 0 #c40403,1px -1px 0 #c40403,-1px -1px 0 #c40403 !important;'>Exempt</span></label></div>
@@ -3987,7 +4096,7 @@ $paylink";
 			echo "</div>";
 		}
 		if ($status == "refunded") {
-			echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will process based on inputs.'></button></div>";
+			echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='Will process based on inputs.' id=\"postallorder\" onclick=\"document.getElementById('postallorder').disabled = true; document.getElementById('postallorder').style.opacity='0.5'; this.form.submit();\"></button></div>";
 		}
 		
 		// end of form submission
@@ -3998,7 +4107,7 @@ $paylink";
 			echo "<form method='post' action=''>
 			  	<input type='hidden' name='cancelid' value='$orderid'>";
 			// cancel button
-			echo "<div style='margin-top: 13px; text-align:center;'><button type='submit' name='cancelorderb' class='cancelorderb'></button></div>";
+			echo "<div style='margin-top: 13px; text-align:center;'><button type='submit' name='cancelorderb' class='cancelorderb' id=\"cancelorderb\" onclick=\"document.getElementById('cancelorderb').disabled = true; document.getElementById('cancelorderb').style.opacity='0.5'; this.form.submit();\"></button></div>";
 			echo "</form>";
 		}
 		$prefix = substr($orderid, 0, 4);
@@ -4010,6 +4119,231 @@ $paylink";
 				echo "<div style='margin-top: 13px; text-align:center;'><button type='submit' name='deleteshipqlb' class='deleteshipqlb'></button></div>";
 				echo "</form>";
 		}
+	}
+	if ( 'generate_quote' === $column )  // generate quote
+	{
+		// bookmark now
+		$items = $order->get_items();
+		foreach( $items as $item )
+		{
+		$product = wc_get_product($item->get_product_id());
+			if ($product != ""){
+				$ship = get_post_meta( $item->get_product_id(), '_customship', true );
+			}
+		}
+		if ($ship == 2) { 
+		echo "<p style='text-align: center; color: #c40403; background-color: #ffffff; border-radius: 5px; font-weight: bold;'>Local Pickup Only</p>"; }
+		else {
+		echo "<div style='line-height: 1.2; min-height: 350px; overflow: auto;'>
+		<form action='https://ccrind.com/wp-admin/admin.php?page=ccr-admin-menu%2Fshipquote-admin-menu-ccr.php' method='post' target='_blank'>
+		<input type='hidden' name='orderidallq' value='$orderid'>
+		<div><label for='lift$orderid' class='liftboxl'>Liftgate?</label>
+		<input type='checkbox' id='lift$orderid' name='lift' class='liftbox' value='1'></div>
+		<div><label for='addtype$orderid' class='addtypeboxl'>Resid Adr?</label>
+		<input type='checkbox' id='addtype$orderid' name='addtype' class='addtypebox' value='1'></div>
+		<div><label for='access$orderid' class='accessboxl'>Limited Ac?</label>
+		<input type='checkbox' id='access$orderid' name='access' class='accessbox' value='1'></div>
+		<div><label for='insidedelivery$orderid' class='insidedeliveryboxl'>Inside Delivery?</label>
+		<input type='checkbox' id='insidedelivery$orderid' name='insidedelivery' class='insidedeliverybox' value='1'></div>
+		<div><label for='terminal$orderid' class='terminalboxl'>Terminal?</label>
+		<input type='checkbox' id='terminal$orderid' name='terminal' class='terminalbox' value='1'></div>
+		<div><label for='flip$orderid' class='flipboxl'>OK reorient?</label>
+		<input type='checkbox' id='flip$orderid' name='flip' class='flipbox' value='1'></div>
+		<div style='margin: 10px;'><input type='submit'></div>
+		<div>Optional Fields:</div>
+		<div><label for='pallet40$orderid' class='pallet40boxl'>48x40</label>
+		<input type='checkbox' id='pallet40$orderid' name='pallet40' class='pallet40box' value='1'></div>
+		<div><label for='pallet48$orderid' class='pallet48boxl'>48x48</label>
+		<input type='checkbox' id='pallet48$orderid' name='pallet48' class='pallet48box' value='1'></div>
+		<div class='height_inputBEdiv'>
+ 		<input type='text' class='shipCostInput' name='length' placeholder='L'></div>
+		<div class='width_inputBEdiv'>
+ 		<input type='text' class='shipCostInput' name='width' placeholder='W'></div>
+		<div class='height_inputBEdiv'>
+        <input type='text' class='shipCostInput' name='height' placeholder='H'></div>
+		<div><input type='text' class='shipCostInput' name='weight' placeholder='Weight'></div>
+		<div class='pallet_feeBEdiv'><span style='color: #ffffff; font-size: 10px;'>Pallet Fee</span>
+        <input type='text' class='_pallet_feeBE' name='pfee' placeholder='Pallet Fee'></div>
+		<div class='pallet_feeBEdiv'><span style='color: #ffffff; font-size: 10px;'>Item Price</span>
+        <input type='text' class='shipCostInput' name='value' placeholder='Price'></div>
+		<div><input type='text' class='shipCostInput' name='sku' placeholder='SKU'></div>
+		<div><input type='text' class='shipCostInput' name='zip' placeholder='Ship Zip'></div>
+		<div><input type='text' class='shipCostInput' name='name' placeholder='Product Name'></div>
+		</form>
+		</div>";
+		}
+	}
+	if ( 'instructions' === $column )  // generate quote
+	{
+		$salesrecord = "";
+		$salesrecord = establish_if_ebay($orderid);
+		// start div formatting
+		echo "<div style='margin-top: 3px; margin-bottom: 3px; height: 400px; overflow: auto; line-height: 1.2;'>";
+		// if it is an ebay order
+		if ($salesrecord != "") 
+		{
+			// debug
+			echo "eBay<br>";
+			if ($status == "on-hold") 
+			{
+				// debug
+				echo "on hold<br>";
+				// check billing address for info
+				$saved_bill = get_post_meta( $orderid, '_saved_billing', true );
+				$billadd1 = $order->get_billing_address_1();
+				if (empty($saved_bill) && empty($billadd1)) {
+					echo "Input order Info:<br><br>Go to <a href='https://www.ebay.com/sh/ord/?filter=status%3AALL_ORDERS&sort=-recordnumber' rel=\"noopener noreferrer\" target=\"_blank\">eBay</a>.<br><br>Find the matching order number.<br><br>Open the \"Send invoice\" link in a new tab to find address info.<br><br>Open the \"View order details\" link in a new tab by selecting the down arrow under \"Awaiting payment\".<br><br>Select \"Show contact info\" to find Phone Number.<br><br>\"Buyer\" will display customer name.<br><br>Copy and paste all the relevant data in the fields under the \"Input Address\" column. (Phone, Name, Company, Street, More St, City, State Zip)";
+				}
+				else {
+					$shiptype = $order->get_shipping_method();
+					if ($shiptype != "") {
+						// check to see if invoice was sent
+						$sentwireinvdate = get_post_meta( $orderid, '_sent_wireinv', true );
+						if ($sentwireinvdate != "") {
+							echo "Wire Invoice Sent:<br><br>Order will stay in \"On Hold\" status, to prevent payment page from becoming active. Wait for payment to be completed.<br><br>If wire payment is verified, select \"Wire\" from options in \"Update Order\" column and Update.";
+						}
+						else {
+							
+						$shipping = $order->get_total_shipping();
+						//if ( strpos($shiptype, "reight Shipping (Terminal)") ) { echo "<div style='font-size: 12px; color: #999999; line-height: 1;'>via $shiptype</div>"; }
+						//else { echo "<div style='font-size: 16px; color: #999999; line-height: 1;'>via $shiptype</div>";  }
+						if ($shiptype == "Local Pickup") { 
+							//echo "<img src=\"https://ccrind.com/wp-content/uploads/2022/11/localpickupccr.png\" title='Local Pickup' alt=\"local pickup image\">"; 
+							if ($shipping != 0) {
+								echo "Local Pickup selected.<br><br>There should be no shipping charge.<br><br>To reset the ship carge to 0, enter a 0 into the Shipping / Pallet Fee: input field above the bullet choices in the \"Subtotal\" column, select the LOCAL PICKUP bullet choice below the input field, and update the order. ";
+							}
+							else {
+								echo "Local Pickup selected.<br><br>Check all the order details (Shipping Method, email, phone number, billing and shipping address, taxes, etc), especially TAXES. Taxes should be added to the order unless the customer has an exemption.<br><br>Taxes can be added (TAX) and removed (EXEMPT) using the bullet choices under the \"Update Order\" column. Select appropriately and update the order.<br><br>If everything appears correct, check the \"Send Invoice\" box in the \"Total\" column and update the order."; 
+							}
+						}
+						else if ( strpos($shiptype, "Party") ) { 
+							//echo "<p class='thirdicon' style='color: #92b5d1; padding-top: 7px; font-size: 20px;'><i class='fa-solid fa-truck-ramp-box fa-2xl'></i></p>"; 
+							echo "3rd Party Freight Selected. Add any necessary pallet fees to the order, select the 3RD PARTY FREIGHT (PALLET FEE) choice under the \"Subtotal\" column and enter the appropriate fee, if any, into the Shipping / Pallet Fee: input field above the bullet choices and update the order.<br><br>Check all the order details. (Shipping Method, email, phone number, billing and shipping address, taxes, etc)<br><br>If everything appears correct, check the \"Send Invoice\" box in the \"Total\" column and update the order.";
+						}
+						else if ( strpos($shiptype, "reight Shipping (Terminal)") ) { 
+							echo "<p class='freighticonterm' style='color: #9fc0c0; padding-top: 7px; font-size: 20px;'><i class='fa-solid fa-truck-moving fa-2xl'></i><i class='fa-solid fa-industry fa-2xl'></i></p>"; }
+						else if ( strpos($shiptype, "reight") ) { 
+							if ($shipping == 0) {
+								//echo "<img src=\"https://ccrind.com/wp-content/uploads/2022/11/freighticon.png\" title='Freight' alt=\"freight ship image\"><br>"; 
+								echo "Determine shipping cost.<br><br>Click the \"Shipping\" Address link to determine shipping conditions. (Commercial or Residential? Liftgate needed? Limited Access? Etc)<br><br>Or contact the customer to obtain this info. (Call or Message in eBay)<br><br>Once determined use the \"Generate Quote\" column to determine the shipping cost.<br><br>If another method besides freight is needed, example: LOCAL PICKUP or 3RD PARTY FREIGHT, select the appropriate bullet choice under the \"Subtotal\" column and enter the appropriate fee, if any, into the Shipping / Pallet Fee: input field above the bullet choices."; 
+							}
+							else {
+								echo "Shipping cost has been entered for the order.<br><br>Check all the order details. (Shipping Method, email, phone number, billing and shipping address, taxes, etc)<br><br>If everything appears correct, check the \"Send Invoice\" box in the \"Total\" column and update the order.";
+							}
+						}
+						else if ( strpos($shiptype, "SPS") ) { 
+							echo "<p class='uspsicon' style='color: #333366; padding-top: 7px; font-size: 20px;'><i class='fa-brands fa-usps fa-2xl'></i></p>"; }
+						else if ( strpos($shiptype, "PS") ) { 
+							echo "<p class='upsicon' style='color: #ffbe03; padding-top: 7px; font-size: 20px;'><i class='fa-brands fa-ups fa-2xl'></i></p>"; } 
+							
+						}
+					} 
+					else {
+						echo "Determine shipping cost.<br><br>Click the \"Shipping\" Address link to determine shipping conditions. (Commercial or Residential? Liftgate needed? Limited Access? Etc)<br><br>Or contact the customer to obtain this info. (Call or Message in eBay)<br><br>Once determined use the \"Generate Quote\" column to determine the shipping cost.";
+					}
+				}
+			}
+			if ($status == "pending") 
+			{
+				// debug
+				echo "pending<br>";
+				if ($method == "None") {
+					echo "Update order to prep for further action.<br><br>Hit the <button type='submit' name='postallorder' class='postallorder' id=\"postallorder\"></button> button in the \"Update Order\" column.";
+				}
+				else {
+					echo "Wait for Payment.<br><br>If you just sent the invoice, be sure to send a direct eBay message as well. Instructions found <a href='https://ccrind.com/send-ebay-message/'>here</a>.<br><br>CREDIT CARD and PAYPAL will occur automatically or can be input using the<br><a href=\"$paylink\" rel=\"noopener noreferrer\" target=\"_blank\">Customer<br>payment page &#8594;</a><br>link in the \"Email\" column.<br><br>CASH, CHECK, WIRE options can be selected in the \"Update Order\" column."; }
+			}
+			// EBAY PROCESSING INSTRUCTIONS
+			if ($status == "processing") 
+			{
+				// debug
+				echo "processing<br>";
+				if ($saCB) {
+					if ($sasCB) {
+						echo "SA Made... SA Signed<br><br>If the item requires Freight or 3rd Party Freight Shipping, inform the appropriate person that the item needs to be prepped / palletized.<br><br>If CCR is Freight Shipping the order, once you receive the final weight / dimensions, use the \"Generate Quote\" column to BOOK the Freight Shipping.<br>Enter the L, W, H, Weight and anything else appropriate into the input fields and click \"Submit\".<br><br>If you have BOOKED the shipping, select the carrier using the select box in the \"Input Tracking Info\" column, then input the Tracking # below the select carrier box, and update the order.";
+					}
+					else {
+						echo "Waiting for SA signing.<br><br>If you need instructions on uploading the SA to <a href='https://cloud.gonitro.com/documents/my-documents' rel=\"noopener noreferrer\" target=\"_blank\">Nitrocloud</a>, please <a href='https://ccrind.com/sales-agreement-instructions/' rel='noopener noreferrer' target='_blank'>click here</a>.<br><br>If you received an email saying the SA has been signed, check the box \"SA Signed\" in the \"Update Order\" column and update the order.<br><br>Download the signed copy of the SA from <a href='https://cloud.gonitro.com/documents/my-documents' rel=\"noopener noreferrer\" target=\"_blank\">Nitrocloud</a> to the CCR server. If you need instructions on the download process, please <a href='https://ccrind.com/sales-agreement-instructions/' rel='noopener noreferrer' target='_blank'>click here</a>.";
+					}
+				}
+				else {
+					echo "Need to generate the SA and upload to <a href='https://cloud.gonitro.com/documents/my-documents' rel=\"noopener noreferrer\" target=\"_blank\">Nitrocloud</a>.<br><br>Before you start or after you finish the process, click the \"SA Made / Submitted\" checkbox in the \"Update Order\" column and update the order.<br><br>Click this button, found in the \"Actions\" column: <a href='' class='btn generateSA' alt='Generate SA PDF'></a> to generate the Sales Agreement using the order data.<br><br>Click the download button in the upper right hand corner of the SA tab that was opened and save the pdf to the CCR server.<br><br>If you need instructions on uploading the SA to <a href='https://cloud.gonitro.com/documents/my-documents' rel=\"noopener noreferrer\" target=\"_blank\">Nitrocloud</a>, please <a href='https://ccrind.com/sales-agreement-instructions/' rel='noopener noreferrer' target='_blank'>click here</a>.";
+				}
+			}
+			// EBAY COMPLETED INSTRUCTIONS
+			if ($status == "completed") 
+			{
+				// debug
+				echo "completed<br>";
+				echo "Order is complete.<br><br>Changes can still be made by going directly into the order link in the \"Order\" column.<br><br>Many changes require the order to be put into \"On Hold\" status.";
+			}
+			// EBAY CANCELLED INSTRUCTIONS
+			if ($status == "cancelled") 
+			{
+				// debug
+				echo "cancelled<br>";
+				echo "Please be sure the order is cancelled inside the <a href='https://www.ebay.com/sh/ord/?filter=status%3AALL_ORDERS&sort=-recordnumber'>eBay</a> order interface as well.<br><br>When the order is cancelled select the appropriate reason why (Buyer has not paid, Buyer asked to cancel, etc).<br><br>NEVER choose to relist the item. Relist the item using the ccrind.com backend interface.";
+			}
+		}
+		// if it is a ws order
+		else 
+		{
+			// debug
+			echo "Webstore<br>";
+			// WEBSTORE ON HOLD INSTRUCTIONS
+			if ($status == "on-hold") 
+			{
+				// debug
+				echo "on hold<br>";
+				// check to see if invoice was sent
+						$sentwireinvdate = get_post_meta( $orderid, '_sent_wireinv', true );
+						if ($sentwireinvdate != "") {
+							echo "Wire Invoice Sent:<br><br>Order will stay in \"On Hold\" status, to prevent payment page from becoming active. Wait for payment to be completed.<br><br>If wire payment is verified, select \"Wire\" from options in \"Update Order\" column and Update.";
+						}
+			}
+			// WEBSTORE PENDING INSTRUCTIONS
+			if ($status == "pending") 
+			{
+				// debug
+				echo "pending<br>";
+				if ($method == "cod") {
+					echo "Update order to prep for further action.<br><br>Hit the <br><button type='submit' name='postallorder' class='postallorder' id=\"postallorder\"></button><br> button in the \"Update Order\" column.";
+				}
+				else {
+				echo "Wait for Payment.<br><br>CREDIT CARD and PAYPAL will occur automatically or can be input using the<br><a href=\"$paylink\" rel=\"noopener noreferrer\" target=\"_blank\">Customer<br>payment page &#8594;</a><br>link in the \"Email\" column.<br><br>CASH, CHECK, WIRE options can be selected in the \"Update Order\" column."; }
+			}
+			// WEBSTORE PROCESSING
+			if ($status == "processing") 
+			{
+				// debug
+				echo "processing<br>";
+				if ($saCB) {
+					if ($sasCB) {
+						echo "SA Made... SA Signed<br><br>If the item requires Freight or 3rd Party Freight Shipping, inform the appropriate person that the item needs to be prepped / palletized.<br><br>If CCR is Freight Shipping the order, once you receive the final weight / dimensions, use the \"Generate Quote\" column to BOOK the Freight Shipping.<br>Enter the L, W, H, Weight and anything else appropriate into the input fields and click \"Submit\".<br><br>If you have BOOKED the shipping, select the carrier using the select box in the \"Input Tracking Info\" column, then input the Tracking # below the select carrier box, and update the order.";
+					}
+					else {
+						echo "Waiting for SA signing.<br><br>If you need instructions on uploading the SA to <a href='https://cloud.gonitro.com/documents/my-documents' rel=\"noopener noreferrer\" target=\"_blank\">Nitrocloud</a>, please <a href='https://ccrind.com/sales-agreement-instructions/' rel='noopener noreferrer' target='_blank'>click here</a>.<br><br>If you received an email saying the SA has been signed, check the box \"SA Signed\" in the \"Update Order\" column and update the order.<br><br>Download the signed copy of the SA from <a href='https://cloud.gonitro.com/documents/my-documents' rel=\"noopener noreferrer\" target=\"_blank\">Nitrocloud</a> to the CCR server. If you need instructions on the download process, please <a href='https://ccrind.com/sales-agreement-instructions/' rel='noopener noreferrer' target='_blank'>click here</a>.";
+					}
+				}
+				else {
+					echo "Need to generate the SA and upload to <a href='https://cloud.gonitro.com/documents/my-documents' rel=\"noopener noreferrer\" target=\"_blank\">Nitrocloud</a>.<br><br>Before you start or after you finish the process, click the \"SA Made / Submitted\" checkbox in the \"Update Order\" column and update the order.<br><br>Click this button, found in the \"Actions\" column: <img src='https://ccrind.com/wp-content/uploads/2023/05/Screenshot-2023-05-19-at-8.04.14-AM.png' alt='generate SA image'> to generate the Sales Agreement using the order data.<br><br>Click the download button in the upper right hand corner of the SA tab that was opened and save the pdf to the CCR server.<br><br>If you need instructions on uploading the SA to <a href='https://cloud.gonitro.com/documents/my-documents' rel=\"noopener noreferrer\" target=\"_blank\">Nitrocloud</a>, please <a href='https://ccrind.com/sales-agreement-instructions/' rel='noopener noreferrer' target='_blank'>click here</a>.";
+				}
+			}
+			// WEBSTORE COMPLETED INSTRUCTIONS
+			if ($status == "completed") 
+			{
+				// debug
+				echo "completed<br>";
+				echo "Order is complete.<br><br>Changes can still be made by going directly into the order link in the \"Order\" column.<br><br>Many changes require the order to be put into \"On Hold\" status.";
+			}
+			// WEBSTORE CANCELLED INSTRUCTIONS
+			if ($status == "cancelled") 
+			{
+				// debug
+				echo "cancelled<br>";
+			}
+		}
+		echo "</div>"; // end div formatting
 	}
 }
 add_action( 'manage_shop_order_posts_custom_column', 'add_order_item_column_content' );
@@ -4024,16 +4358,19 @@ function cc_fee_column() {
         ?>
         <style type="text/css">
 			.column-order_number { width:80px !important; overflow:hidden; }
+			.column-order_email { width:120px !important; overflow:auto; }
 			.column-order_status { width:80px !important; overflow:auto; }
 			.column-order_inputship { width:136px !important; overflow:hidden; }
-			.column-order_inputtrack { width:126px !important; overflow:hidden; }
+			.column-order_inputtrack { width:128px !important; overflow:hidden; }
 			.column-order_date { width:190px !important; overflow:hidden; }
             .column-order_ccfee { width:80px !important; overflow:hidden; }
 			.column-wc_actions { width:80px !important; overflow:hidden; }
 			.column-update_order { width:75px !important; overflow:hidden; }
-			.column-order_billship { width:18ch !important; overflow:hidden; }
+			.column-order_billship { width:150px !important; overflow:hidden; }
 			.column-order_itemstats { width:60px !important; overflow:hidden; }
 			.column-order_tax { width:50px !important; overflow:hidden; }
+			.column-generate_quote { width:140px !important; overflow:hidden; }
+			.column-instructions { width:200px !important; }
 			/*.column-billing_address {
 				width:100px !important; overflow:hidden;
 			}*/
@@ -4047,11 +4384,11 @@ function cc_fee_column() {
                width:230px !important; overflow:hidden;
            }
 		  .column-order_item {
-               width:200px !important; overflow:hidden
+               width:180px !important; overflow:hidden
            }
 			.column-_stock_status_combine{
-				max-width: 150px !important;
-				min-width: 110px !important;
+				max-width: 140px !important;
+				min-width: 100px !important;
 				text-align: center;
 			}
 		  .column-_sku {
@@ -4067,11 +4404,11 @@ function cc_fee_column() {
 			  width:90px !important; overflow:hidden;
            }
 			.column-_price_cost {
-			  min-width:110px !important;
-			  max-width:150px !important;
+			  min-width:80px !important;
+			  max-width:120px !important;
 			  text-align: center;
            }
-			.column-_fix_info, .column-_note_dan { max-width: 130px !important; overflow:auto;}
+			.column-_fix_info, .column-_note_dan { max-width: 100px !important; overflow:auto;}
 			.column-cat_date_modifier{
 			  min-width: 150px !important;
 			  max-width: 150px !important;
@@ -4100,7 +4437,7 @@ function cc_fee_column() {
   				table-layout:auto;
 			}
 			.column-name {
-			  min-width: 200px !important;
+			  min-width: 120px !important;
 			  overflow-wrap: break-word !important;
 			  word-break: break-all !important;
            }
@@ -4112,7 +4449,7 @@ function cc_fee_column() {
 				text-align: center;
 			}
 			.column-_auction {
-				max-width: 120px !important;
+				max-width: 100px !important;
 			}
 			.column-product_shipping_class {
 				min-width : 134px !important;
@@ -4180,12 +4517,19 @@ function tax_notice( )
 	{
 		echo "* Curbside pickup available *<br>";
 	}
-	if( has_term( 'furniture', 'product_cat', $post_id ))
-	{ 
-		echo "<h4 style=\"font-weight: bold; padding: 6px; color: #a08100;\">CASH PAYMENT ONLY FOR THIS ITEM</h4>";
-		if ($customship == 2) {
-			echo "<h4 style=\"font-weight: bold; padding: 6px; color: #a08100;\">LOCAL PICKUP ONLY</h4>";
-			echo "<h4 style=\"font-weight: bold; padding: 6px; color: #a08100;\">NO SHIPPING FOR THIS ITEM</h4>";
+	if ($customship == 2) {
+		echo "<h4 style=\"font-weight: bold; padding: 6px; color: #a08100;\">LOCAL PICKUP ONLY</h4>";
+		if ( $id == 146062 ) {
+			echo "<h4 style=\"font-weight: bold; padding: 6px; color: #a08100;\">However, you can setup your own shipping through UPS, FedEx, USPS, etc.</h4>";
+		}
+		else {
+			echo "<h4 style=\"font-weight: bold; padding: 6px; color: #a08100;\">NO SHIPPING FOR THIS ITEM</h4>"; }
+		if( has_term( 'furniture', 'product_cat', $post_id ))
+		{ 
+			echo "<h4 style=\"font-weight: bold; padding: 6px; color: #a08100;\">CASH PAYMENT ONLY FOR THIS ITEM</h4>";
+			echo "<h4 style=\"font-weight: bold; padding: 6px; color: #a08100;\">CONTACT US DIRECTLY TO ARRANGE ORDER</h4>";
+			echo "<h4 style=\"font-weight: bold; padding: 6px; color: #a08100;\">CALL (931) 563-4704</h4>";
+			echo "<h4 style=\"font-weight: bold; padding: 6px; color: #a08100;\">EMAIL sales@ccrind.com</h4>";
 		}
 	}
 	if( has_term( 'forklifts', 'product_cat', $post_id ))
@@ -4289,44 +4633,33 @@ function remove_checkout_optional_fields_label_script() {
     <?php
 }
 /*************************************************************************************************************************/
-add_action('woocommerce_new_order', function ($order_id) 
-{
-	$order = wc_get_order( $order_id );
-    foreach ( $order->get_items() as $item_id => $item ) 
-	{
-		$product = $item->get_product();
-		if (isset($product))
-		{
-			$id = $product->get_id();
-   			$quantity = $item->get_quantity();
-			$stock = $product->get_stock_quantity();
-			if ($stock == 1)
-			{
-				if ($salesrecord == "") // ccrind order 
-				{ update_post_meta( $id, '_soldby', wc_clean( "wso" ) ); }
-				else // ebay order
-				{ update_post_meta( $id, '_soldby', wc_clean( "ebayo" ) ); }
-				$product->set_status('private'); 
-			}
-			else { $product->set_status('published'); }
-			$product->save();
-		}
-	}
-}, 10, 1);
-/*************************************************************************************************************************/
 // CUSTOM FUNCTIONS
 // create note in sold oos log
 function sold_oos_log( $email, $product ) 
 {
-	if ( !file_exists("../library/sold-oos-log/".date("Y-m-d")) ) { 
-		mkdir("../library/sold-oos-log/".date("Y-m-d"), 0744, true);
-	}
-	$file = fopen("../library/sold-oos-log/".date("Y-m-d")."/sold-oos.txt","a");
-	echo fwrite($file, "\n" . date('Y-m-d h:i:s', current_time( 'timestamp', 0 ) ) . " --- " . $email . " --- " . $product->get_sku());
+	$year = date("Y"); $mon = date("m"); $day = date("d");
+	if ( !file_exists("../library/sold-oos-log/$year/$mon/$day/" ) ) { 
+		mkdir("../library/sold-oos-log/$year/$mon/$day", 0744, true); }
+	
+	$sku = $product->get_sku();
+	$postid = $product->get_id();
+	$lsnlink = get_post_meta( $postid, '_lsnlink', true ); if ($lsnlink != "") { $lsnlink = strtolower( $lsnlink ); }
+	$fblink = get_post_meta( $postid, '_fbmp', true ); if ($fblink != "") { $fblink = strtolower( $fblink ); }
+	
+	$file = fopen("../library/sold-oos-log/$year/$mon/$day/sold-oos.html","a");
+	// build line
+	$line = "<br>" . date('Y-m-d h:i:s', current_time( 'timestamp', 0 ) ) . " --- " . $email . " --- <a class='order_item_link' href='https://ccrind.com/wp-admin/edit.php?s=%3D$sku&post_status=all&post_type=product&action=-1&soldby_filter&product_visibility=0&product_type&stock_status&paged=1&postidfirst=106269&action2=-1' rel='noopener noreferrer' target='_blank'><strong>$sku</strong></a>";
+	if ( $fblink != "" && substr($fblink, 0, 1) == "h" ) {
+		$line = $line . " --- <a class='fb_item_link' href='https://www.facebook.com/marketplace/you/selling?title_search=$sku' rel='noopener noreferrer' target='_blank'><strong>FB</strong></a>"; }
+	if ($lsnlink != "") {
+		$line = $line . " --- <a class='lsn_item_link' href='$lsnlink' rel='noopener noreferrer' target='_blank'><strong>LSN</strong></a>"; }
+	// write the line to the file
+	echo fwrite($file, $line);
+	fclose($file);
 }
 /*************************************************************************************************************/
 // create note in price change log
-function price_change_log( $email, $product, $oregprice, $regprice ) 
+function old_price_change_log( $email, $product, $oregprice, $regprice ) 
 {
 	$postid = $product->get_id();
 	$lsn = get_post_meta( $postid, '_lsn', true );
@@ -4336,6 +4669,11 @@ function price_change_log( $email, $product, $oregprice, $regprice )
 			$lsnL = "<a class='admin_lsn_link' href='$lsnlink' rel='noopener noreferrer' target='_blank' title='$lsnlink'>$lsn</a>"; }
 	$fblink = get_post_meta( $postid, '_fbmp', true );
 	$fblink = strtolower( $fblink );
+	$pos = strpos($fblink, "item/") + 5; // find where item/ is and account for its length of 5
+	$fbID = substr($fblink, $pos);
+	$len = strlen($fbID) - 1;
+	$fbID = substr($fbID, 0, $len);
+	$fbPriceChangeLink = "https://www.facebook.com/marketplace/edit/?listing_id=$fbID";
 		if ( $fblink == "" ) { $fbL = ""; }
 		else if ( $fblink == "exclude" ) {
 			 $fbL = "<p style='display: inline-block; 
@@ -4360,7 +4698,7 @@ function price_change_log( $email, $product, $oregprice, $regprice )
 					-webkit-border-radius: 5px;
 					border-radius: 5px;
 					transition-duration: 0.3s;'
-					href='$fblink' rel='noopener noreferrer' target='_blank'>
+					href='$fbPriceChangeLink' rel='noopener noreferrer' target='_blank'>
 					facebook</a>"; }
 	
 	if ( !file_exists("../library/price-change-log/".date("Y-m-d")) ) { 
@@ -4368,6 +4706,302 @@ function price_change_log( $email, $product, $oregprice, $regprice )
 	$file = fopen("../library/price-change-log/".date("Y-m-d")."/price-change.html","a");
 	echo fwrite($file, "<br>" . date('Y-m-d h:i:s', current_time( 'timestamp', 0 ) ) . " --- " . $email . " --- " . $lsnL . " - " . $fbL . " ---       " . $product->get_sku() . " --- $" . $oregprice . " -> $" . $regprice );
 }
+// new price change log
+function price_change_log( $email, $product, $oregprice, $regprice )  
+{
+	$postid = $product->get_id();
+	$lsn = get_post_meta( $postid, '_lsn', true );
+	$lsnlink = get_post_meta( $postid, '_lsnlink', true );
+	if ( $lsnlink != "" ) {
+		$pos = strpos($lsnlink, '/', strpos($lsnlink, '/', strpos($lsnlink, '/', strpos($lsnlink, '/', strpos($lsnlink, '/') + 1) + 1) + 1 ) + 1) + 1;
+		$pos2 = strpos($lsnlink, '.', strpos($lsnlink, '.', strpos($lsnlink, '.') + 1) + 1);
+		$lsnID = substr($lsnlink, $pos, $pos2 - $pos); 
+	}
+	// create new lsn link 
+	$newlsnlink = "https://www.lsn.com/mylsn/manage/$lsnID";
+		if ($lsn == "") { $lsnL = ""; }
+		else if ( substr( $lsn, 0, 1 ) == "l" || substr( $lsn, 0, 1 ) == "c"  ) {
+			$lsnL = "<a class='admin_lsn_link' href='$newlsnlink' rel='noopener noreferrer' target='_blank' title='$newlsnlink'>$lsn</a>"; }
+	$fblink = get_post_meta( $postid, '_fbmp', true );
+	$fblink = strtolower( $fblink );
+	$pos = strpos($fblink, "item/") + 5; // find where item/ is and account for its length of 5
+	$fbID = substr($fblink, $pos);
+	$len = strlen($fbID) - 1;
+	$fbID = substr($fbID, 0, $len);
+	$sku = "<a class='admin_link_fb2' 
+					style='display: inline-block;
+					text-align:center; 
+					-webkit-border-radius: 5px;
+					border-radius: 5px;
+					transition-duration: 0.3s;'
+					href='https://ccrind.com/wp-admin/edit.php?s=%3D".$product->get_sku()."&post_status=all&post_type=product&action=-1&soldby_filter&product_visibility=0&product_cat&product_type&stock_status&paged=1&postidfirst=142130&action2=-1' rel='noopener noreferrer' target='_blank'>".$product->get_sku()."</a>"; 
+	$fbPriceChangeLink = "https://www.facebook.com/marketplace/edit/?listing_id=$fbID";
+		if ( $fblink == "" ) { $fbL = ""; }
+		else if ( $fblink == "exclude" ) {
+			 $fbL = "<p style='display: inline-block; 
+					color:#ffffff; 
+					background-color:#48649f; 
+					text-align:center; 
+					padding: 8px; 
+					-webkit-border-radius: 20px;
+					border-radius: 20px;'><strong> &nbsp; X &nbsp; </strong></p>"; }
+		else if ( $fblink == "multi" ) {
+			$fbL = "<p style='display: inline-block; 
+					color:#ffffff; 
+					background-color:#48649f; 
+					text-align:center; 
+					padding: 8px; 
+					-webkit-border-radius: 20px;
+					border-radius: 20px;'><strong> &nbsp; M &nbsp; </strong></p>"; }
+		else if ( substr( $fblink, 0, 1 ) == "h" ) {
+			$fbL = "<a class='admin_link_fb2' 
+					style='display: inline-block;
+					text-align:center; 
+					-webkit-border-radius: 5px;
+					border-radius: 5px;
+					transition-duration: 0.3s;'
+					href='$fbPriceChangeLink' rel='noopener noreferrer' target='_blank'>
+					facebook</a>"; 
+			$fbLS = "<a class='admin_link_fb2' 
+					style='display: inline-block;
+					text-align:center; 
+					-webkit-border-radius: 5px;
+					border-radius: 5px;
+					transition-duration: 0.3s;'
+					href='https://www.facebook.com/marketplace/you/selling?title_search=".$product->get_sku()."' rel='noopener noreferrer' target='_blank'>
+					fb search</a>"; 
+		}
+	
+	$year = date("Y"); $md = date("m-d");
+	if ( !file_exists("../library/price-change-log/$year/$md/" ) ) { 
+		mkdir("../library/price-change-log/$year/$md/", 0744, true); }
+	
+		// create the html product change log
+		// create update log table from existing array
+		$tabledatarows = "";
+		$tabledatarows = $tabledatarows ."
+		<tr>
+			<td>" . date('Y-m-d h:i:s', current_time( 'timestamp', 0 ) ) . "</td>
+			<td>$email</td>
+			<td>$lsnL</td>
+			<td>$fbL</td>
+			<td>$fbLS</td>
+			<td>$sku</td>
+			<td>$oregprice</td>
+			<td>$regprice</td>
+		</tr>
+";
+		
+	$filestart = "
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+td, th { border: 1px solid #dddddd; text-align: left; padding: 8px; }
+th { background-color: #dddddd; }
+.pl_table_title { font-size: 20px; font-weight: heavy; }
+tr:nth-child(even) { background-color: #f2f2f2 }
+</style>
+</head>
+<body>
+
+<p>Click the buttons to sort the table.  Buttons denoted by headers with *</p>
+
+<h2>PRICE CHANGE LOG: " . date('Y-m-d', current_time( 'timestamp', 0 ) ) . "</h2>
+<table id='priceTable'>
+	<tr>
+		<th><button onclick='sortTableDATE()'><b>* Date / Time *</b></button></th>
+		<th>User</th>
+		<th><button onclick='sortTableLSN()'><b>* LSN *</b></button></th>
+		<th>FB Link</th>
+		<th>FB Search SKU Link</th>
+		<th><button onclick='sortTableSKU()'><b>* SKU *</b></button></th>
+		<th>Old Price</th>
+		<th><button onclick='sortTablePRICE()'><b>* NEW PRICE *</b></button></th>
+	</tr>
+	$tabledatarows
+";
+	
+
+	$fileend = "</table>
+<script>
+function sortTableLSN() {
+  var table, rows, switching, i, x, y, shouldSwitch;
+  table = document.getElementById('priceTable');
+  switching = true;
+  /*Make a loop that will continue until
+  no switching has been done:*/
+  while (switching) {
+    //start by saying: no switching is done:
+    switching = false;
+    rows = table.rows;
+    /*Loop through all table rows (except the
+    first, which contains table headers):*/
+    for (i = 1; i < (rows.length - 1); i++) {
+      //start by saying there should be no switching:
+      shouldSwitch = false;
+      /*Get the two elements you want to compare,
+      one from current row and one from the next:*/
+      x = rows[i].getElementsByTagName('TD')[2];
+      y = rows[i + 1].getElementsByTagName('TD')[2];
+      //check if the two rows should switch place:
+      if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
+        //if so, mark as a switch and break the loop:
+        shouldSwitch = true;
+        break;
+      }
+    }
+    if (shouldSwitch) {
+      /*If a switch has been marked, make the switch
+      and mark that a switch has been done:*/
+      rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+      switching = true;
+    }
+  }
+}
+
+function sortTableDATE() {
+  var table, rows, switching, i, x, y, shouldSwitch;
+  table = document.getElementById('priceTable');
+  switching = true;
+  /*Make a loop that will continue until
+  no switching has been done:*/
+  while (switching) {
+    //start by saying: no switching is done:
+    switching = false;
+    rows = table.rows;
+    /*Loop through all table rows (except the
+    first, which contains table headers):*/
+    for (i = 1; i < (rows.length - 1); i++) {
+      //start by saying there should be no switching:
+      shouldSwitch = false;
+      /*Get the two elements you want to compare,
+      one from current row and one from the next:*/
+      x = rows[i].getElementsByTagName('TD')[0];
+      y = rows[i + 1].getElementsByTagName('TD')[0];
+      //check if the two rows should switch place:
+      if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
+        //if so, mark as a switch and break the loop:
+        shouldSwitch = true;
+        break;
+      }
+    }
+    if (shouldSwitch) {
+      /*If a switch has been marked, make the switch
+      and mark that a switch has been done:*/
+      rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+      switching = true;
+    }
+  }
+}
+
+function sortTableSKU() {
+  var table, rows, switching, i, x, y, shouldSwitch;
+  table = document.getElementById('priceTable');
+  switching = true;
+  /*Make a loop that will continue until
+  no switching has been done:*/
+  while (switching) {
+    //start by saying: no switching is done:
+    switching = false;
+    rows = table.rows;
+    /*Loop through all table rows (except the
+    first, which contains table headers):*/
+    for (i = 1; i < (rows.length - 1); i++) {
+      //start by saying there should be no switching:
+      shouldSwitch = false;
+      /*Get the two elements you want to compare,
+      one from current row and one from the next:*/
+      x = rows[i].getElementsByTagName('TD')[5];
+      y = rows[i + 1].getElementsByTagName('TD')[5];
+      //check if the two rows should switch place:
+      if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
+        //if so, mark as a switch and break the loop:
+        shouldSwitch = true;
+        break;
+      }
+    }
+    if (shouldSwitch) {
+      /*If a switch has been marked, make the switch
+      and mark that a switch has been done:*/
+      rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+      switching = true;
+    }
+  }
+}
+
+function sortTablePRICE() {
+  var table, rows, switching, i, x, y, shouldSwitch, a, b;
+  table = document.getElementById('priceTable');
+  switching = true;
+  /*Make a loop that will continue until
+  no switching has been done:*/
+  while (switching) {
+    //start by saying: no switching is done:
+    switching = false;
+    rows = table.rows;
+    /*Loop through all table rows (except the
+    first, which contains table headers):*/
+    for (i = 1; i < (rows.length - 1); i++) {
+      //start by saying there should be no switching:
+      shouldSwitch = false;
+      /*Get the two elements you want to compare,
+      one from current row and one from the next:*/
+      x = rows[i].getElementsByTagName('TD')[7]; 
+	  a = Number(x.innerHTML.toLowerCase());
+      y = rows[i + 1].getElementsByTagName('TD')[7]; 
+	  b = Number(y.innerHTML.toLowerCase());
+      //check if the two rows should switch place:
+      if (a > b) {
+        //if so, mark as a switch and break the loop:
+        shouldSwitch = true;
+        break;
+      }
+    }
+    if (shouldSwitch) {
+      /*If a switch has been marked, make the switch
+      and mark that a switch has been done:*/
+      rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+      switching = true;
+    }
+  }
+}
+</script>
+
+</body>
+</html>
+";
+		// html product change log
+		// if the file doesnt exist, format html with page title and table header cells
+		if ( !file_exists("../library/price-change-log/$year/$md/price-change.html") ) {
+			$file = fopen("../library/price-change-log/$year/$md/price-change.html","a");
+			$data = $filestart . $fileend;
+			echo fwrite($file, $data);
+			fclose($file);
+		}
+		// if the file exists, add the latest change log to the top after the style and h1 title
+		else {
+			// open the file
+			$file = fopen("../library/price-change-log/$year/$md/price-change.html","c+");
+			$found = true; // flag to verify if string is found
+			$find = "</table>";  // string to find
+			$filecontents = "";
+			// read through the file until $find is found
+			while ( ($line = fgets($file))  != false ) {
+				// once $find is found, stop reading
+				if ( strpos( $line, $find) !== false ) { $found = false; }
+				if ($found) { $filecontents = $filecontents . $line; continue; }
+			}
+			fclose($file); // close the reading of file
+			// open the file and create it fresh to rebuild the file entirely
+			$file = fopen("../library/price-change-log/$year/$md/price-change.html","w");
+			echo fwrite($file, "$filecontents
+$tabledatarows " . "$fileend
+");
+			fclose($file); 
+		}
+}
+
 /*************************************************************************************************************/
 // translate lister emails
 function translate_email( $email ) 
@@ -4375,7 +5009,7 @@ function translate_email( $email )
 	if ($email == "adam@ccrind.com"){ $email = "Adam"; }
 	else if ($email == "jedidiah@ccrind.com"){ $email = "Jed"; }
 	else if ($email == "dan@ccrind.com"){ $email = "Dan"; }
-	else if ($email == "sharon@ccrind.com"){ $email = "SHaron"; }
+	else if ($email == "sharon@ccrind.com"){ $email = "Sharon"; }
 	else if ($email == "ccrind02@gmail.com"){ $email = "Ryan"; }
 	else if ($email == "ccrind05@gmail.com"){ $email = "Kelsey"; }
 	return $email;
@@ -4387,8 +5021,8 @@ function email_order_update()
 	global $current_user;
     wp_get_current_user();
 	$email = $current_user->user_email; 
-	if ( $email == "jedidiah@ccrind.com" ) { $email = "sharon@ccrind.com"; }
-	else if ( $email == "sharon@ccrind.com" ) { $email = "jedidiah@ccrind.com"; }
+	//if ( $email == "jedidiah@ccrind.com" ) { $email = "adam@ccrind.com"; }
+	if ( $email == "sharon@ccrind.com" ) { $email = "jedidiah@ccrind.com"; }
 	return $email;
 }
 /*************************************************************************************************************/
@@ -4404,8 +5038,8 @@ function paid_ebay( $tid )
 function print_billvia( $order )
 {
 	$shiptype = $order->get_payment_method();
-	if ($shiptype != "") {
 	$tid = $order->get_transaction_id();
+	if ($shiptype != "" && $tid != "") {
 	list($shiptype, $tid) = translate_pay( $shiptype, $tid );
 	if ($tid != "") { echo "<div style='font-size: 16px; color: #999999; line-height: 1;'>via $shiptype <text style='font-size: 12px;'>($tid)</text></div>"; }
 	else { echo "<div style='font-size: 16px; color: #999999; line-height: 1;'>via $shiptype</div>"; } 
@@ -4426,12 +5060,14 @@ function print_shipvia( $order )
 	if ($shiptype != "") {
 		if ( strpos($shiptype, "reight Shipping (Terminal)") ) { echo "<div style='font-size: 12px; color: #999999; line-height: 1;'>via $shiptype</div>"; }
 		else { echo "<div style='font-size: 16px; color: #999999; line-height: 1;'>via $shiptype</div>";  }
-		if ($shiptype == "Local Pickup") { echo "<p class='lpicon' style='color: #c40403; padding-top: 7px; font-size: 20px;'><i class='fa-solid fa-warehouse fa-2xl'></i></p>"; } 
+		if ($shiptype == "Local Pickup") { 
+			echo "<div style='margin-top: 7px;'><img src=\"https://ccrind.com/wp-content/uploads/2022/11/localpickupccr.png\" title='Local Pickup' alt=\"local pickup image\" width='69' height='43'></div>"; }
+			//echo "<p class='lpicon' style='color: #c40403; padding-top: 7px; font-size: 20px;'><i class='fa-solid fa-warehouse fa-2xl'></i></p>"; } 
 		else if ( strpos($shiptype, "Party") ) { echo "<p class='thirdicon' style='color: #92b5d1; padding-top: 7px; font-size: 20px;'><i class='fa-solid fa-truck-ramp-box fa-2xl'></i></p>"; }
 		else if ( strpos($shiptype, "reight Shipping (Terminal)") ) { echo "<p class='freighticonterm' style='color: #9fc0c0; padding-top: 7px; font-size: 20px;'><i class='fa-solid fa-truck-moving fa-2xl'></i><i class='fa-solid fa-industry fa-2xl'></i></p>"; }
 		else if ( strpos($shiptype, "reight") ) { 
 			//echo "<p class='freighticon' style='color: #9fc0c0; padding-top: 7px; font-size: 20px;'><i class='fa-solid fa-truck-moving fa-2xl'></i></p>"; 
-			echo "<img src=\"https://ccrind.com/wp-content/uploads/2022/10/ltlAlpha.png\" title='Freight' alt=\"freight ship image\">";
+			echo "<div style='margin-top: 7px;'><img src=\"https://ccrind.com/wp-content/uploads/2022/11/freighticon.png\" title='Freight' alt=\"freight ship image\" width='90' height='43'></div>";
 		}
 		//else if ( strpos($shiptype, "reight") ) { echo "<p class='freighticon' style='color: #f8dda7; padding-top: 7px; font-size: 3px;'>
 		//<img style=\"width:120px;\" src=\"https://ccrind.com/wp-content/uploads/2022/08/noun-truck-199691.svg\" alt=\"Freight Icon\"/></p>"; }
@@ -4441,7 +5077,7 @@ function print_shipvia( $order )
 /*************************************************************************************************************/
 // translate the payment method into a more user friendly readable phrase
 function translate_pay( $shiptype, $tid ) {
-	if ($shiptype == "paypal" || $shiptype === 'angelleye_ppcp') { 
+	if ($shiptype == "paypal" || $shiptype == 'angelleye_ppcp' || $shiptype == 'ppcp-gateway' || $shiptype == "ppcp" ) { 
 		$shiptype = "PayPal"; 
 		if ($tid != "") { $tid = "<a href=\"https://www.paypal.com/cgi-bin/webscr?cmd=_view-a-trans&id=$tid\"  rel=\"noopener noreferrer\" target=\"_blank\">$tid</a>"; } }
 	else if ($shiptype == "quickbookspay") { 
@@ -4465,16 +5101,24 @@ function get_selected_variation_stock() {
             echo $attribute_pa_colour . ": " . $stock . " "; } } }
 /*************************************************************************************************************/
 // filter order notes on order page for readability note color
-function order_notes_filter ( $note_content, $date, $user, $color ) {
+function order_notes_filter ( $note_content, $date, $user, $color, &$stockup, &$stockdown ) {
 	// translate user name color
 	if ( strpos($note_content, 'Jedidiah') !== false ) { 
 		$user = "<text style='color: #ffffff; background-color: #535f9b; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Jedidiah</strong> &nbsp;</text>"; }
 	else if ( strpos($note_content, 'Sharon') !== false) { 
 		$user = "<text style='color: #002eff; background-color: #b3c0ff; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Sharon</strong> &nbsp;</text>"; }
+	else if ( strpos($note_content, 'Lamar') !== false) { 
+		$user = "<text style='color: #2c812b; background-color: #d5ffd5; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Lamar</strong> &nbsp;</text>"; }
+	else if ( strpos($note_content, 'Brian') !== false) { 
+		$user = "<text style='color: #2c812b; background-color: #d5ffd5; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Brian</strong> &nbsp;</text>"; }
 	if ( strpos($user, 'Jedidiah') !== false ) { 
 		$user = "<text style='color: #ffffff; background-color: #535f9b; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Jedidiah</strong> &nbsp;</text>"; }
 	else if ( strpos($user, 'Sharon') !== false) { 
 		$user = "<text style='color: #002eff; background-color: #b3c0ff; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Sharon</strong> &nbsp;</text>"; }
+	else if ( strpos($user, 'Lamar') !== false) { 
+		$user = "<text style='color: #2c812b; background-color: #d5ffd5; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Lamar</strong> &nbsp;</text>"; }
+	else if ( strpos($user, 'Brian') !== false) { 
+		$user = "<text style='color: #2c812b; background-color: #d5ffd5; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Brian</strong> &nbsp;</text>"; }
 	// color notes based on their meaning
 	$note_lower = strtolower($note_content);
 	if ( strpos($note_lower, 'invoice sent,') !== false || strpos($note_lower, 'tracking info entered') !== false || strpos($note_lower, 'email') !== false ) { $color = "#ff9797"; }
@@ -4490,13 +5134,70 @@ function order_notes_filter ( $note_content, $date, $user, $color ) {
 	// filter out unwanted messages notes
 	if ( ( strpos ($note_content, 'No active eBay listings found in this order.') !== false ) 
 		|| ( strpos ($note_content, 'Order status changed from') !== false ) 
-		//|| ( strpos ($note_content, 'Stock levels reduced:') !== false ) 
-		//|| ( strpos ($note_content, 'Stock levels increased:') !== false ) 
 		|| ( strpos ($note_content, 'Order has been exported to Shipstation') !== false ) 
 		|| ( strpos ($note_content, 'eBay inventory was updated successfully') !== false ) 
 		|| ( strpos ($note_content, 'Scheduled to update inventory in the background') !== false ) 
 		|| ( strpos ($note_content, 'There was a problem revising the inventory') !== false ) 
 	   ) { /* do nothing */ }
+	else if ( strpos ($note_content, 'Stock levels reduced:') !== false ) {
+		if ($stockdown) { echo "<div class='ordernote' style='color: $color; flex: 1;'>$note_content<br>$date  $user</div><br>"; } $stockdown = 0; }
+	else if ( strpos ($note_content, 'Stock levels increased:') !== false ) {
+		if ($stockup) { echo "<div class='ordernote' style='color: $color; flex: 1;'>$note_content<br>$date  $user</div><br>"; } $stockup = 0; }
+	else { echo "<div class='ordernote' style='color: $color; flex: 1;'>$note_content<br>$date  $user</div><br>"; } 
+}
+/*************************************************************************************************************/
+function order_notes_filterC ($note, $ntype) {
+	
+	if ($ntype == 1) {
+		echo "<div class='customer_order_notes_area' style='max-height: 100px; overflow:auto; line-height: 1.2; color: #ffffff; background-color: #5c5c5c; border-radius: 5px; font-size: 14px;'>$note<br><br></div>"; 
+	}
+	if ($ntype == 2) {
+		echo "<div class='customer_order_notes_area' style='line-height: 1.2; color: #ff9f9e; background-color: #5c5c5c; border-radius: 5px; font-size: 14px; margin-top: 3px;'>$note<br><br></div>"; 
+	}
+}
+/*************************************************************************************************************/
+function order_notes_filterPage ( $note_content, $date, $user, $color, &$stockup, &$stockdown ) {
+	// translate user name color
+	if ( strpos($note_content, 'Jedidiah') !== false ) { 
+		$user = "<text style='color: #ffffff; background-color: #535f9b; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Jedidiah</strong> &nbsp;</text>"; }
+	else if ( strpos($note_content, 'Sharon') !== false) { 
+		$user = "<text style='color: #002eff; background-color: #b3c0ff; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Sharon</strong> &nbsp;</text>"; }
+	else if ( strpos($note_content, 'Lamar') !== false) { 
+		$user = "<text style='color: #2c812b; background-color: #d5ffd5; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Lamar</strong> &nbsp;</text>"; }
+	else if ( strpos($note_content, 'Brian') !== false) { 
+		$user = "<text style='color: #2c812b; background-color: #d5ffd5; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Brian</strong> &nbsp;</text>"; }
+	if ( strpos($user, 'Jedidiah') !== false ) { 
+		$user = "<text style='color: #ffffff; background-color: #535f9b; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Jedidiah</strong> &nbsp;</text>"; }
+	else if ( strpos($user, 'Sharon') !== false) { 
+		$user = "<text style='color: #002eff; background-color: #b3c0ff; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Sharon</strong> &nbsp;</text>"; }
+	else if ( strpos($user, 'Lamar') !== false) { 
+		$user = "<text style='color: #2c812b; background-color: #d5ffd5; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Lamar</strong> &nbsp;</text>"; }
+	else if ( strpos($user, 'Brian') !== false) { 
+		$user = "<text style='color: #2c812b; background-color: #d5ffd5; border-radius: 10px; padding: 2px;'>&nbsp; <strong>Brian</strong> &nbsp;</text>"; }
+	// color notes based on their meaning
+	$note_lower = strtolower($note_content);
+	if ( strpos($note_lower, 'invoice sent,') !== false || strpos($note_lower, 'tracking info entered') !== false || strpos($note_lower, 'email') !== false ) { $color = "#ff9797"; }
+	if ( strpos($note_lower, 'ebay') !== false ) { $color = "#f4ae02"; }
+	if ( strpos($note_lower, 'info / ship') !== false || strpos($note_lower, 'ancelled') !== false ) { $color = "#ffffff"; }
+	if ( strpos($note_lower, 'tock levels reduced') !== false ) { $color = "#c97a7a"; }
+	if ( strpos($note_lower, 'tock levels increased') !== false ) { $color = "#7ec97a"; }
+	if ( strpos($note_lower, 'arked exempt') !== false ) { $color = "#c39595"; }
+	if ( strpos($note_lower, 'arked taxable') !== false ) { $color = "#a8c09f"; }
+	if ( strpos($note_lower, 'ales agreement signed') !== false ) { $color = "#f8dda7"; }
+	if ( strpos($note_lower, 'ales agreement made') !== false ) { $color = "#6fa0bd"; }
+	if ( strpos($note_lower, 'quickbooks payments') !== false || strpos($note_lower, 'ipn payment completed') !== false || strpos($note_lower, 'paypal transaction id:') !== false || strpos($note_lower, 'payment via paypal') !== false ) { $color = "#c6e1c6"; }
+	// filter out unwanted messages notes
+	if ( ( strpos ($note_content, 'No active eBay listings found in this order.') !== false ) 
+		|| ( strpos ($note_content, 'Order status changed from') !== false ) 
+		|| ( strpos ($note_content, 'Order has been exported to Shipstation') !== false ) 
+		|| ( strpos ($note_content, 'eBay inventory was updated successfully') !== false ) 
+		|| ( strpos ($note_content, 'Scheduled to update inventory in the background') !== false ) 
+		|| ( strpos ($note_content, 'There was a problem revising the inventory') !== false ) 
+	   ) { /* do nothing */ echo "<div class='ordernote' style='color: $color; flex: 1;'>$note_content<br>$date  $user</div><br>"; }
+	if ( strpos ($note_content, 'Stock levels reduced:') !== false ) {
+		if ($stockdown) { echo "<div class='ordernote' style='color: $color; flex: 1;'>$note_content<br>$date  $user</div><br>"; } $stockdown = 0; }
+	else if ( strpos ($note_content, 'Stock levels increased:') !== false ) {
+		if ($stockup) { echo "<div class='ordernote' style='color: $color; flex: 1;'>$note_content<br>$date  $user</div><br>"; } $stockup = 0; }
 	else { echo "<div class='ordernote' style='color: $color; flex: 1;'>$note_content<br>$date  $user</div><br>"; } }
 /*************************************************************************************************************/
 // establish if order is ebay
@@ -4526,20 +5227,6 @@ SOLD BY:			 CHANGED: $osb => $tag";
 	// change product status
 	$product->set_status('private'); 
 	$product->save(); 
-	// create text log of change
-	/*$sku = $product->get_sku();
-	$skul = strlen($sku);
-	if ($skul > 4) { $sku_2 = substr($sku, 0, 2); $sku_3 = substr($sku, 2, 1); }
-	else if ($skul == 4) { $sku_2 = substr($sku, 0, 1); $sku_3 = substr($sku, 1, 1); }
-	else { $sku_2 = $sku; $sku_3 = $sku; }
-	if ( !file_exists("../library/product-change-logs/$sku_2/$sku_3/") ) { 
-		mkdir("../library/product-change-logs/$sku_2/$sku_3/", 0744, true); }
-	$file = fopen("../library/product-change-logs/$sku_2/$sku_3/$sku.txt","a");
-	echo fwrite($file, "\n" . date('Y-m-d h:i:s', current_time( 'timestamp', 0 ) ) . " --- 
-" . $msg. "
-		
-");
-	fclose($file); */
 	$changeloc = "Order Change Edit (Auto)";
 	make_product_change_logs($product, $salesrecord, $updatedesc, $tableupdate, $email, $lastuser, $changeloc);
 }
@@ -4662,7 +5349,7 @@ function fee_trans( $status, $fee, $label ) {
 	$fee = "$" . number_format((float) $fee, 2, '.', '' ); echo "<div class='total_labels' style='margin-top: 5px; margin-bottom: 5px; line-height: 1.2; color: #$color;'><span style='display: inline-block; color: #$color2; background-color: #$bgc; padding: 6px; -webkit-border-radius: 5px; border-radius: 5px;'>$fee</span>$label "; echo "</div>"; }
 /*************************************************************************************************************/
 function update_checks($orderid) {
-	echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title=''></button></div>
+	echo "<div style='text-align:center;'><button type='submit' name='postallorder' class='postallorder' title='' id=\"postallorder\" onclick=\"document.getElementById('postallorder').disabled = true; document.getElementById('postallorder').style.opacity='0.5'; this.form.submit();\"></button></div>
 		<div style='margin-top: 3px; margin-bottom: 3px; line-height: 1.2;'>
 		<label for='cashcheck$orderid'><input type='radio' id='cashcheck$orderid' name='payradio' class='cashradio' value='1'>
       	<span style='color: #b2fc95 !important;'>Cash</span></label></div>
@@ -4675,7 +5362,8 @@ function update_checks($orderid) {
 /*************************************************************************************************************/
 // wp_mail email alert for items marked sold (not in use)
 function email_alert($email) {
-	$to = array("jedidiah@ccrind.com", "adam@ccrind.com");
+	//$to = array("jedidiah@ccrind.com", "adam@ccrind.com");
+	$to = "jedidiah@ccrind.com";
 	$subject = "SOLD CCR Item Forced to SOLD: OUT OF STOCK, SKU:" . $product->get_sku();
 	$message = "SKU:  " . $product->get_sku() . " stock level set to 0 by " . $email . "\n
 In Line Edit Stock Change Column SOLD\n
@@ -4687,8 +5375,8 @@ https://ccrind.com/wp-admin/edit.php?s=%3D" . $product->get_sku() . "&post_statu
 /*************************************************************************************************************/
 // change allowed users to access the creation of sales agreements generateSA
 function bewpi_allowed_roles_to_download_invoice($allowed_roles) {
-    // available roles: shop_manager, customer, contributor, author, editor, administrator
-    $allowed_roles[] = "administrator, editor";
+    // available roles: shop_manager, customer, contributor, author, editor, administrator, sub_editor
+    $allowed_roles[] = "administrator, editor, subeditor";
     // end so on..
     return $allowed_roles; }
 add_filter( 'bewpi_allowed_roles_to_download_invoice', 'bewpi_allowed_roles_to_download_invoice', 10, 2 );
@@ -4761,3 +5449,86 @@ function lsn_scheduled_event() {
 	$message = "$debug";
 	wp_mail( $to, $subject, $message );*/
 }
+function get_query_IDs() {
+
+
+        global $wp_query;
+
+        $buffer_query = $wp_query->query;
+    
+        $args = array(
+            'nopaging' => true,
+            'fields' => 'ids',
+        );
+    
+        $custom_query = new WP_Query( array_merge( $buffer_query, $args ) );
+    
+        wp_reset_postdata();
+    
+        return $custom_query->posts;
+
+}
+add_filter( 'woocommerce_products_admin_list_table_filters', 'remove_products_admin_list_table_filters', 10, 1 );
+function remove_products_admin_list_table_filters( $filters ){
+    // Remove "Product type" dropdown filter
+        unset($filters['fb_sync_enabled']);
+
+    return $filters;
+}
+/*************************************************************************************************************/
+
+add_action('save_post_product', 'send_fbmp_email', 9999, 3);
+function send_fbmp_email( $post_id, $post, $update )   {
+	$product = wc_get_product( $post_id );
+	$status = $product->get_status();
+	$type = get_post_type( $post );
+	$sku = $product->get_sku();
+	
+	if( 'product' === $type && $status == "publish" ) 
+	{	
+		remove_action('save_post_product', 'send_fbmp_email', 9999, 3 );
+		$product->save();
+		//add_action('save_post_product', 'send_fbmp_email', 9999, 3);
+		$fblink = get_post_meta( $post_id, '_fbmp', true );
+		$solby = get_post_meta( $post_id, '_soldby', true );
+		$customs = get_post_meta( $post_id, '_customship', true );
+		
+		if ( substr($fblink, 0, 4) != "http" && $soldby != "auco" && $customs != 4 && $customs != 6) 
+		{
+			$sku = $product->get_sku();
+			$subject  = "PRODUCT NEEDS FBMP: $sku";
+			$message  = "Post: $post_id, SKU: $sku may need to be posted to Facebook Marketplace.";
+			wp_mail("jedidiah@ccrind.com", $subject, $message ); 
+		}
+	} 
+}
+/*************************************************************************************************************/
+add_action( 'woocommerce_product_published', 'send_fbmp_email_new', 10, 1 );
+function send_fbmp_email_new( $product_id ) {
+	$product = wc_get_product( $product_id );
+	$sku = $product->get_sku();
+	
+	$fblink = get_post_meta( $post_id, '_fbmp', true );
+	$solby = get_post_meta( $post_id, '_soldby', true );
+	$customs = get_post_meta( $post_id, '_customship', true );
+	
+	if ( substr($fblink, 0, 4) != "http" && $soldby != "auco" && $customs != 4 && $customs != 6) 
+	{
+		$sku = $product->get_sku();
+		$subject  = "PRODUCT NEEDS FBMP: $sku NEW PUBLISH";
+		$message  = "Post: $post_id, SKU: $sku may need to be posted to Facebook Marketplace.";
+		wp_mail("jedidiah@ccrind.com", $subject, $message ); 
+	}
+}
+/*************************************************************************************************************/
+function get_product_by_sku( $sku ) {
+
+    global $wpdb;
+
+    $product_id = $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM $wpdb->postmeta WHERE meta_key='_sku' AND meta_value='%s' LIMIT 1", $sku ) );
+
+    if ( $product_id ) return new WC_Product( $product_id );
+
+    return null;
+}
+/*************************************************************************************************************/
