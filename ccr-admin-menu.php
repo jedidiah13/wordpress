@@ -511,11 +511,11 @@ function contactlog_admin_page_ccr_contents() {
 function shipquote_admin_page_ccr_contents() {
 	echo "<h2>Ship Quote Generator using <a href='https://www.freightquote.com/book/#/single-page-quote' rel='noopener noreferrer' target='_blank'>freightquote.com</a></h2>";
 	// baseline variables
-    $clientID = "0oaqytpn1zrGXMNyR357";
-    $clientSecret = "xSllN5OleLXhGEp6fY4vPVUP3MlroLHV8V7Xfc9s";
-	$clientIDsand = "0oaqgzu6m1Z2lbKXv357";
-    $clientSecretsand = "6v0z8Ophav7ySIUDngbYx5sNBYyKbTLhYxP2AgEJ";
-    $customerCode = "C8664585";
+    $clientID = "hidden";
+    $clientSecret = "hidden";
+	$clientIDsand = "hidden";
+    $clientSecretsand = "hidden";
+    $customerCode = "hidden";
 	// check token age
 	date_default_timezone_set("America/Chicago");
 	$check = date("Y-m-d h:i:sa");
